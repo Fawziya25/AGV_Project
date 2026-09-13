@@ -40,6 +40,7 @@ cmake-build-*/
 .codegraph/
 .omo/
 .claude/
+.workbuddy/
 
 # IDE
 .idea/
