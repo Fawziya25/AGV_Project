@@ -12,6 +12,18 @@
 #define Origin_X 0 // 初始X坐标
 #define Origin_Y 0 // 初始Y坐标
 
+#define Vel 100 // 行驶速度为100
+
+#define QRCode 400, 1200           // 二维码区坐标
+#define Raw 1200, 300              // 原料区坐标
+#define Raw_Depart 1200, 400       // 原料区出发点坐标
+#define Rough 1200, 2115           // 粗加工区坐标
+#define Temp 2115, 1200            // 暂存区坐标
+#define Waypoint_LB 400, 300       // 左下角目标点坐标
+#define Waypoint_RB 2115, 300      // 右下角目标点坐标
+#define Waypoint_LF 400, 2115      // 左上角目标点坐标
+#define Waypoint_RF 2115, 2115     // 右上角目标点坐标
+
 void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir);
 void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir);
 void AGV_Position_Rotate(uint8_t dir);
