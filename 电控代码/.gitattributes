@@ -1,0 +1,51 @@
+# ============================================================
+#  .gitattributes —— 让同一个仓库在不同机器上「行为一致」
+#  作用：仓库内统一存 LF，检出时按类型决定工作区行尾。
+#  没有它，Windows 上检出的 shell 脚本会变 CRLF，
+#  拿到 WSL / Linux / CI 上跑就报
+#      bash: ./githooks/pre-commit: /usr/bin/env bash^M: bad interpreter
+# ============================================================
+
+# 默认：自动识别文本，仓库内存 LF
+* text=auto
+
+# ---- 必须永远是 LF 的（跨平台要能直接执行）----
+*.sh        text eol=lf
+githooks/*  text eol=lf
+*.c         text eol=lf
+*.h         text eol=lf
+*.s         text eol=lf
+*.ld        text eol=lf
+*.cmake     text eol=lf
+CMakeLists.txt text eol=lf
+*.json      text eol=lf
+*.jsonc     text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+.gitignore  text eol=lf
+.gitattributes text eol=lf
+
+# ---- 必须留 CRLF 的（Windows 专属批处理）----
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+# ---- 二进制文件：不要做任何行尾/编码变换 ----
+*.elf  binary
+*.bin  binary
+*.hex  binary
+*.a    binary
+*.lib  binary
+*.o    binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.xls  binary
+*.xlsx binary
+
+# ---- 语言统计 / diff 体验 ----
+*.c    linguist-language=C
+*.h    linguist-language=C
+*.ld   linguist-language=LinkerScript

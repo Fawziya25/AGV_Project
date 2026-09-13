@@ -1,5 +1,6 @@
 #include "hwt101.h"
 #include "usart.h"
+#include "yawPIDcontroller.h"
 
 /**********************************************************
 *** HWT101 单轴航向角 IMU（维特智能）驱动程序
@@ -33,11 +34,19 @@ void HWT101_Init(UART_HandleTypeDef *huart)
     hwt101.version = 0U;
     hwt101.dataReady = false;
 
+    ZeroBias_Reset();   /* 清零零偏估计状态;随后 ManualCal() 会采集一次静止窗口 */
+
     /* 使能接收中断，逐字节接收并组帧 */
     __HAL_UART_ENABLE_IT(huart, UART_IT_RXNE);
     HAL_NVIC_SetPriority(UART5_IRQn, 6U, 0U);
     HAL_NVIC_EnableIRQ(UART5_IRQn);
     HAL_UART_Receive_IT(huart, &hwt101_rxByte, 1U);
+
+    HWT101_SetYawZero();
+
+    HWT101_SetRate(100);  /* 设置输出频率100Hz */
+
+    HWT101_ManualCal();
 }
 
 /**
@@ -105,6 +114,7 @@ static void HWT101_ParseFrame(void)
             hwt101.yaw = (float)value * HWT101_ANGLE_SCALE;
             hwt101.version = (uint16_t)((uint16_t)hwt101.frame[9] << 8 | (uint16_t)hwt101.frame[8]);
             hwt101.dataReady = true;
+            ZeroBias_Feed();    /* 每个有效角度帧喂一次零偏估计器(替代原TIM7节拍) */
             break;
 
         default:
@@ -342,4 +352,19 @@ float HWT101_GetYaw(void)
 float HWT101_GetWz(void)
 {
     return hwt101.wz;
+}
+
+/**
+ * @brief 手动获取零偏校准（写MANUALCALI=1，机器人必须完全静止后调用）
+ * @retval None
+ * @author Sisyphus
+ * @date 2026-08-18
+ */
+void HWT101_ManualCal()
+{
+    ZeroBias_Start();
+    HWT101_ManualCalStart();
+    HAL_Delay(20000);
+    HWT101_ManualCalStop();
+    ZeroBias_End();
 }

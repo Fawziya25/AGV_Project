@@ -52,11 +52,13 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     UserCode/Src/positionPIDcontroller.c
     UserCode/Src/task.c
     UserCode/Src/delay.c
-    UserCode/Src/pick.c
+    UserCode/Src/pick_ctrl.c
     HARDWARE/Src/oled.c
     HARDWARE/Src/QRcode.c
     UserCode/Src/yawPIDcontroller.c
     UserCode/Src/openmv.c
+    UserCode/Src/pick_task.c
+    UserCode/Src/menu.c
 )
 
 # Add include paths

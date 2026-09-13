@@ -28,7 +28,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "task.h"
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -77,6 +76,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+   HAL_Init();
 
   /* USER CODE BEGIN Init */
   
@@ -98,18 +98,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  AGV_Init();
-  while(1)
-{
-    if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_8) == GPIO_PIN_RESET)  /* 检测到按下 */
-    {
-        HAL_Delay(20);                                          /* 消抖延时 */
-        if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_8) == GPIO_PIN_RESET)
-        {
-            break;                                              /* 确认按下，退出等待 */
-        }
-    }
-}
+  AGV_Init();   /* 末尾阻塞在 menu_Init() 等A8启动，期间C6/C8切换路线 */
 
   /* USER CODE END 2 */
 
@@ -118,11 +107,12 @@ int main(void)
 
   while (1)
   {
-    TaskProc();
+    TaskProc();/*进行全部任务*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
+  Pick_MoveTo POS_DEFAULT;/*结束后回到POS_DEFAULT*/
   /* USER CODE END 3 */
 }
 

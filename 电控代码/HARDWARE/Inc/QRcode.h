@@ -3,9 +3,11 @@
 
 #include "main.h"
 #include "usart.h"
+#include "oled.h"
 
 void AGV_QRcode_StartScan(void);
 void AGV_QRcode_WaitForScan(void);
+void QRcode_Task(void);
 
 // 二维码扫描结果缓冲区（15字节数据 + 1字节'\0'结束符）
 extern uint8_t QRcode_Buffer[16];

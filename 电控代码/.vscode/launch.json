@@ -1,10 +1,9 @@
 {
-    // 使用 IntelliSense 了解相关属性。 
+    // 使用 IntelliSense 了解相关属性。
     // 悬停以查看现有属性的描述。
     // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
 
         {
             "type": "stlinkgdbtarget",
@@ -19,6 +18,30 @@
                     "imageFileName": "${command:st-stm32-ide-debug-launch.get-projects-binary-from-context1}"
                 }
             ]
+        },
+
+        {
+            "name": "Debug with Wireless DAP (OpenOCD)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/STM32F407_CAN_CMD.elf",
+            // CUBE_BUNDLE_PATH 由 STM32Cube 扩展 / CLT 自动设置，指向 .../AppData/Local/stm32cube/bundles
+            "armToolchainPath": "${env:CUBE_BUNDLE_PATH}/gnu-gdb-for-stm32/14.3.1+st.2/bin",
+            "configFiles": [
+                "interface/cmsis-dap.cfg",
+                "target/stm32f4x.cfg"
+            ],
+            "device": "STM32F407VE",
+            "interface": "swd",
+            "openOCDLaunchCommands": [
+                "transport select swd"
+            ],
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": true,
+            // packs 在 LOCALAPPDATA 下（不在 bundles 里），所以用 LOCALAPPDATA 而不是 CUBE_BUNDLE_PATH
+            "svdFile": "${env:LOCALAPPDATA}/stm32cube/packs/STMicroelectronics/stm32f4xx_dfp/1.2.0/SVD/STM32F407.svd"
         }
     ]
 }

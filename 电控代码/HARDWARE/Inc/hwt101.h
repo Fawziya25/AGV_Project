@@ -60,5 +60,6 @@ bool HWT101_IsDataReady(void);
 void HWT101_ClearDataReady(void);
 float HWT101_GetYaw(void);
 float HWT101_GetWz(void);
+void HWT101_ManualCal(void);
 
 #endif

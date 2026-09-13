@@ -54,3 +54,16 @@ void QRcode_ParseResult(void)
         Place_Color2[i - 12] = QRcode_Buffer[i] - '0';
     }
 }
+
+void QRcode_Task(void)
+{
+    OLED_Clear();
+    AGV_QRcode_StartScan();
+    AGV_QRcode_WaitForScan();
+    uint8_t sep = QRcode_Buffer[8];
+    QRcode_Buffer[8] = '\0';
+    OLED_ShowString(0, 0, (uint8_t *)QRcode_Buffer, 32, 1);
+    QRcode_Buffer[8] = sep;
+    OLED_ShowString(0, 32, (uint8_t *)&QRcode_Buffer[8], 32, 1);
+    OLED_Refresh();
+}

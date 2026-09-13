@@ -2,9 +2,9 @@
 #define __TASK_H
 
 #include "main.h"
+#include "task.h"
 #include "usart.h"
 #include "Emm_V5.h"
-#include "positionPIDcontroller.h"
 #include "yawPIDcontroller.h"
 #include "hwt101.h"
 #include "oled.h"
@@ -12,53 +12,31 @@
 #include "yawPIDcontroller.h"
 #include <stdio.h>
 #include <stdint.h>
-#include "pick.h"
+#include "pick_ctrl.h"
 #include "QRcode.h"
 #include "openmv.h"
+#include "pick_task.h"
 
 typedef enum
 {
-    // 从出发点离开并扫码,到达原料区
     Depart = 0,
-    // 取料
-    Pick = 1,
-    // 到达粗加工区
-    Turn1 = 2,
-    Move1 = 3,
-    Turn2 = 4,
-    // 到达暂存区
-    Move2 = 5,
-    Turn3 = 6,
+    QRcode = 1,
+    Move1 = 2,
+    Pick1 = 3,
+    Move2 = 4,
+    Place1 = 5,
+    Pick2 = 6,
     Move3 = 7,
-    // 放料
-    Place1 = 8,
-    // 回到出发点
+    Place2 = 8,
     Move4 = 9,
-    Turn4 = 10,
-    GoBack = 11,
-    IDLE = 12,
-    Qcode= 13,
-    Correct=14,
-    Move5 = 15,
-    Turn5 = 16,
-    Move6 = 17,
-    Place2 = 18,
-    Move7 = 19,
-    Turn6 = 20,
-    Move8 = 21,
-    Pick1 = 22,
-    Pick2 = 23,
+    GoBack = 10,
+    IDLE = 11,
 }TaskcodeTypeDef;
 
 extern TaskcodeTypeDef TaskCode;
+extern uint8_t Route_id;   /* 路线选择 0/1，定义在 task.c，menu.c 切换 */
 
 void AGV_Init(void);
 void TaskProc(void);
-
-void AGV_Correct(void);
-void Pick_RAW(void);
-void Place_ROUGH(void);
-void Pick_ROUGH(void);
-void Place_TEMP(void);
 
 #endif

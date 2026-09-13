@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# ============================================================
+#  pre-commit —— 拦住「机器相关绝对路径」进仓库
+#
+#  由来：本项目早先在别人账号下开发，.vscode/launch.json 里留了
+#        C:/Users/Dawn/... 的硬编码路径，换到本机后调试直接起不来
+#        （GDB executable ... was not found）。让这类问题在
+#        commit 阶段就被发现，而不是等换机器时再排查。
+#
+#  一次性启用（.git/hooks 不进版本库，所以每个 clone 各做一次）：
+#      git config core.hooksPath githooks
+#
+#  检查的是「本次新增的行」，历史存量不受影响。
+#
+#  确实需要放过时：
+#      git commit --no-verify
+#    或者把该文件加进下面的 SKIP 白名单并说明理由。
+# ============================================================
+
+set -u
+
+# --- 硬拦：用户主目录绝对路径 -------------------------------------------
+ERR_RE='[Cc]:[\\/]+[Uu]sers[\\/]+[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+/|/Users/[A-Za-z0-9._-]+/'
+
+# --- 软提醒：装工具用的盘符绝对路径，如 D:\Program Files\mingw64 ----------
+WARN_RE='[A-Za-z]:[\\/]+(Program Files|ProgramData|Tools|Keil|mingw|MinGW|msys64)'
+
+# --- 白名单：这些路径里出现机器路径是合理的 -----------------------------
+#     build/ 产物；.workbuddy/ 是 agent 的项目笔记，本来就记录本机路径；
+#     githooks/ 是本钩子自身（注释里必须举反例，否则会拦下它自己）
+SKIP_DIR_RE='^(build/|\.workbuddy/|\.omo/|\.codegraph/|\.tools/|githooks/)'
+#     文档和二进制不扫（README 里写示例路径是正常的）
+SKIP_EXT_RE='\.(md|txt|png|jpe?g|gif|bmp|pdf|elf|bin|hex|map|o|a|lib|exe|dll|db|db-wal|db-shm|sqlite|zip|7z|ico|svg|ioc)$'
+
+err_hits=0
+warn_hits=0
+
+# core.quotepath=false：路径含中文时不加引号转义
+while IFS= read -r file; do
+    [ -n "$file" ] || continue
+
+    # 注意：这两个都是 grep 正则，不要写成 case 的 glob 模式
+    if printf '%s' "$file" | grep -qE "$SKIP_DIR_RE"; then
+        continue
+    fi
+    if printf '%s' "$file" | grep -qE "$SKIP_EXT_RE"; then
+        continue
+    fi
+
+    # 只取本次新增的行（+ 开头，排除 +++ 文件头）
+    added=$(git -c core.quotepath=false diff --cached --unified=0 --no-color -- "$file" \
+            | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+    [ -n "$added" ] || continue
+
+    hits=$(printf '%s\n' "$added" | grep -nE "$ERR_RE" || true)
+    if [ -n "$hits" ]; then
+        [ $err_hits -eq 0 ] && echo "" && echo "✗ 发现硬编码的用户主目录路径："
+        err_hits=$((err_hits + 1))
+        echo "  $file"
+        printf '%s\n' "$hits" | sed 's/^/      /'
+    fi
+
+    whits=$(printf '%s\n' "$added" | grep -nE "$WARN_RE" || true)
+    if [ -n "$whits" ]; then
+        [ $warn_hits -eq 0 ] && echo "" && echo "! 提醒：以下行含本机盘符绝对路径（不一定错，但换机器会失效）："
+        warn_hits=$((warn_hits + 1))
+        echo "  $file"
+        printf '%s\n' "$whits" | sed 's/^/      /'
+    fi
+done <<< "$(git -c core.quotepath=false diff --cached --name-only --diff-filter=ACMR)"
+
+if [ $warn_hits -gt 0 ]; then
+    echo ""
+    echo "  改法：把绝对路径换成 VS Code 变量，例如"
+    echo "      C:/Users/<你>/AppData/Local/...   ->   \${env:LOCALAPPDATA}/..."
+    echo "      .../stm32cube/bundles/...        ->   \${env:CUBE_BUNDLE_PATH}/..."
+    echo "      工程内文件                        ->   \${workspaceFolder}/..."
+fi
+
+if [ $err_hits -gt 0 ]; then
+    echo ""
+    echo "✗ 提交被拦下：请先去掉这些硬编码路径（或确认无误后 git commit --no-verify）"
+    exit 1
+fi
+
+exit 0

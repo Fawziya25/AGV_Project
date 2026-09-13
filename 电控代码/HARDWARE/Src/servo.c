@@ -8,6 +8,7 @@
  */
 #include "servo.h"
 #include "stm32f4xx_hal.h"
+#include <math.h>      /* fabsf */
 
 /* ==================== 可移植配置区 ==================== */
 /* Z轴旋转舵机: 量程 0°~360°, 对应脉宽 500~2500us */
@@ -32,7 +33,9 @@
 #define SERVO_G_MAX_ANG   270.0f
 #define SERVO_G_MIN_PULSE 500
 #define SERVO_G_MAX_PULSE 2500
-#define SERVO_G_START_ANG 85.0f    /* 上电初始角(°)：0°=量程起点 */
+#define SERVO_G_START_ANG 90.0f    /* 上电初始角(°)：0°=量程起点 */
+
+/* 舵机平滑加减速配置 SERVO_RAMP_* 已上移到 servo.h（与 pick 层共享可见） */
 /* ===================================================== */
 
 typedef struct {
@@ -133,13 +136,14 @@ float Servo_GetAngle(ServoId id)
 }
 
 /**
- * @brief 平滑转动到目标角度：以小步长分步逼近，避免舵机全速猛转
+ * @brief 平滑转动到目标角度：梯形速度曲线，中间按设定速度走，开头/结尾加减速
  * @note  位置舵机转速由内部电机决定，软件只能靠分步+延时"模拟慢转"。
- *        步长越小/间隔越长 → 越慢。
+ *        开头/结尾各 SERVO_RAMP_STEPS 步从 SERVO_RAMP_START 比例缓慢起步/收尾，
+ *        避免起步/停车时的惯性冲击造成材料磨损；设 SERVO_RAMP_STEPS=0 即退化为匀速。
  * @param id          舵机编号
  * @param angle       目标角(°)
- * @param stepDeg     每步转过的角度(°)（如 1.0f）
- * @param stepDelayMs 每步间隔(ms)（如 15）
+ * @param stepDeg     每步转过的角度(°)，中间巡航段用（如 1.0f）
+ * @param stepDelayMs 每步间隔(ms)，全程固定（如 15）
  */
 void Servo_SetAngleSmooth(ServoId id, float angle, float stepDeg, uint16_t stepDelayMs)
 {
@@ -150,19 +154,50 @@ void Servo_SetAngleSmooth(ServoId id, float angle, float stepDeg, uint16_t stepD
     if(angle > c->maxAngle) angle = c->maxAngle;
     if(angle < c->minAngle) angle = c->minAngle;
 
-    /* 由当前脉宽反推当前角度 */
-    float cur = Servo_GetAngle(id);
+    float start = Servo_GetAngle(id);      /* 当前命令角 */
+    float total = fabsf(angle - start);    /* 总行程(°) */
+    if(total < 1e-3f) return;              /* 已在目标 */
 
-    /* 分步逼近目标角 */
-    float dir = (angle >= cur) ? stepDeg : -stepDeg;
-    uint16_t guard = 0;
-    while(dir > 0.0f ? (cur < angle) : (cur > angle))
+    float dir = (angle >= start) ? 1.0f : -1.0f;
+
+    /* 加减速段配置 */
+    uint8_t rampSteps = SERVO_RAMP_STEPS;
+    float   startRatio = SERVO_RAMP_START;
+    if(rampSteps == 0) startRatio = 1.0f;  /* 关闭加减速 = 原匀速 */
+
+    float rampLen = (float)rampSteps * stepDeg;   /* 期望的加速/减速段距离(°) */
+    float accelLen, decelLen;
+    if(total >= 2.0f * rampLen) { accelLen = rampLen; decelLen = rampLen; }
+    else                        { accelLen = total * 0.5f; decelLen = total * 0.5f; } /* 小行程变三角形 */
+
+    float cur = start;
+    uint32_t guard = 0;
+    uint32_t guardMax = (uint32_t)(total / (stepDeg * startRatio)) + 20u;
+
+    while(fabsf(cur - start) < total - 1e-3f)
     {
-        cur += dir;
-        if(dir > 0.0f && cur > angle) cur = angle;
-        if(dir < 0.0f && cur < angle) cur = angle;
+        float moved  = fabsf(cur - start);
+        float remain = total - moved;
+        if(remain <= 0.0f) break;
+
+        float step;
+        if(moved < accelLen)                 /* 开头：加速段，步幅从小到大 */
+        {
+            step = stepDeg * (startRatio + (1.0f - startRatio) * (moved / accelLen));
+        }
+        else if(remain <= decelLen)          /* 结尾：减速段，步幅从大到小 */
+        {
+            step = stepDeg * (startRatio + (1.0f - startRatio) * (remain / decelLen));
+        }
+        else                                 /* 中间：设定速度 */
+        {
+            step = stepDeg;
+        }
+
+        if(step > remain) step = remain;     /* 最后一步不越过目标 */
+        cur += dir * step;
         Servo_SetAngle(id, cur);
         HAL_Delay(stepDelayMs);
-        if(++guard > 500) break;   /* 防死循环 */
+        if(++guard > guardMax) break;        /* 防死循环 */
     }
 }

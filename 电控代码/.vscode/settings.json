@@ -6,10 +6,12 @@
     "cmake.preferredGenerators": [
         "Ninja"
     ],
+    "cortex-debug.openocdPath": "${env:LOCALAPPDATA}/xpack-openocd/xpack-openocd-0.12.0-7/bin/openocd.exe",
     "stm32cube-ide-clangd.path": "cube",
     "stm32cube-ide-clangd.arguments": [
         "starm-clangd",
         "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gcc*",
         "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-g++*"
-    ]
+    ],
+    "cortex-debug.variableUseNaturalFormat": true
 }
