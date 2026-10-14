@@ -60,6 +60,12 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     UserCode/Src/camera.c
     UserCode/Src/pick_task.c
     UserCode/Src/menu.c
+    # 雷达：v6 协议 + 非阻塞客户端 + 四段路径规划 + UART4 板级适配 + AGV 胶水层
+    Radar/Src/link_protocol.c
+    Radar/Src/radar_client.c
+    Radar/Src/launch_mission.c
+    Radar/Src/radar_uart_port.c
+    Radar/Src/radar_task.c
 )
 
 # Add include paths
@@ -67,6 +73,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
     HARDWARE/Inc
     UserCode/Inc
+    Radar/Inc
 )
 
 # Add project symbols (macros)

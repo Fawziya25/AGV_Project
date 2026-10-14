@@ -20,6 +20,18 @@
 #include "stm32f4xx_hal.h"
 #include <stdio.h>
 
+/* 启动菜单第二阶段：选雷达启停区（2026-10-14 新增，配合 Radar 模块）
+   1 = A8 启动后再显示一页"启停区"，C6 改、A8 确认；0 = 完全恢复旧行为（A8 直接启动）。
+   启停区就是雷达的工作区域 zone 1/2：两区的位姿独立保存，选定后 Radar_SetZone() 会
+   同时把该区的雷达位姿与出发点方格一起装好（见 radar_config.h）。 */
+#ifndef RADAR_MENU_PICK_ZONE
+#define RADAR_MENU_PICK_ZONE  1
+#endif
+
+#if RADAR_MENU_PICK_ZONE
+#include "radar_task.h"
+#endif
+
 /* 按键引脚：按下=低电平 */
 #define KEY_START_GPIO  GPIOA
 #define KEY_START_PIN   GPIO_PIN_8      /* A8 启动 —— 只此一个用途 */
@@ -84,12 +96,35 @@ static void Menu_Display(void)
     OLED_Refresh();
 }
 
+#if RADAR_MENU_PICK_ZONE
 /**
- * @brief 阻塞等待启动：A8 短按返回；C6 短按切换 Route_id
+ * @brief OLED 雷达启停区选择页（阶段2）
+ * @note  第1行标题 / 第2行当前启停区 / 第3行操作提示；C6 改、A8 确认
+ */
+static void Menu_DisplayZone(void)
+{
+    char buf[16];
+    OLED_Clear();
+    OLED_ShowString(0, 0, (uint8_t *)"RADAR zone", 16, 1);
+    sprintf(buf, "zone: %u", (unsigned)Radar_GetZone());
+    OLED_ShowString(0, 24, (uint8_t *)buf, 16, 1);
+    OLED_ShowString(0, 48, (uint8_t *)"C6:chg  A8:ok", 16, 1);
+    OLED_Refresh();
+}
+#endif
+
+/**
+ * @brief 阻塞等待启动：A8 短按进入下一阶段；C6 短按切换 Route_id
  * @note  OLED 依赖 AGV_Init() 中 AGV_OLED_ShowReady() 已初始化
  *        进入时 Dbg_Suspend()：AGV_Init() 里 Dbg_Init() 早于本函数，TIM7 已经
  *        在跑了，而本函数的 HAL_Delay 会被 test.c 盖掉、内部调 Dbg_Service()
  *        —— 不挂起的话 200ms 一到就把菜单刷成相机数据画面，且不再自动恢复。
+ *
+ *        RADAR_MENU_PICK_ZONE=1 时本函数分两阶段（都返回后 Radar_RunOnce() 才开跑）：
+ *          阶段1 C6 选整车路线 / A8 进入阶段2；
+ *          阶段2 C6 选雷达启停区(1↔2) / A8 确认启动。
+ *        两阶段都靠 Key_Scan 消抖，A8 在阶段1 只负责"进入下一阶段"，
+ *        与"启动"的语义差别只多按一次，不会误触发（每次都是独立的按下沿）。
  */
 void Menu_Init(void)
 {
@@ -98,11 +133,9 @@ void Menu_Init(void)
     Menu_Display();                      /* 首次显示菜单 */
     while(1)
     {
-        if(Key_Scan(&key_start))         /* A8 短按 → 启动 */
+        if(Key_Scan(&key_start))         /* A8 短按 → 进入下一阶段 */
         {
-            OLED_Clear();                /* 清空OLED屏幕 */
-            Dbg_Resume();                /* 交还屏幕，并补一次重画 */
-            return;                      /* 退出菜单，进入主程序 */
+            break;
         }
         if(Key_Scan(&key_route))         /* C6 短按 → 路线取反 */
         {
@@ -111,4 +144,26 @@ void Menu_Init(void)
         }
         HAL_Delay(KEY_SCAN_PERIOD_MS);
     }
+
+#if RADAR_MENU_PICK_ZONE
+    /* 阶段2：选雷达启停区。选定后 Radar_SetZone() 会把该区的雷达位姿与出发点方格一起装好。 */
+    Menu_DisplayZone();
+    while(1)
+    {
+        if(Key_Scan(&key_start))         /* A8 短按 → 确认并启动 */
+        {
+            break;
+        }
+        if(Key_Scan(&key_route))         /* C6 短按 → 启停区 1↔2 */
+        {
+            uint8_t zone = (Radar_GetZone() == 1U) ? 2U : 1U;
+            (void)Radar_SetZone(zone);   /* 规划开始后会被拒；此时必然成功 */
+            Menu_DisplayZone();
+        }
+        HAL_Delay(KEY_SCAN_PERIOD_MS);
+    }
+#endif
+
+    OLED_Clear();                        /* 清空OLED屏幕 */
+    Dbg_Resume();                        /* 交还屏幕，并补一次重画 */
 }

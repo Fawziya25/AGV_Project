@@ -6,6 +6,7 @@
 #include "positionPIDcontroller.h"
 #include "menu.h"
 #include "test.h"       /* Dbg_Init —— 原 dbg.h，已并进 test.h/test.c */
+#include "radar_task.h" /* 雷达四段路径规划（Radar/ 模块） */
 #include <stdint.h>
 
 
@@ -32,7 +33,10 @@ void AGV_Init(void)
     AGV_Can_Init(); // 初始化CAN,用于电机通信
     YawPID_Init();  /* 航向PID,增益见 yawPIDcontroller.h 的 YAW_PID_KP/KI/KD */
     HWT101_Init(&huart5);// 初始化HWT101
+    Radar_Init();           /* 雷达客户端初始化（不发帧）；在 Menu_Init 之前，菜单里要选起点方格 */
     Menu_Init();            /* 阻塞等待A8启动，期间C6/C8切换路线 */
+    Radar_RunOnce();        /* 启动时跑一次雷达：选区→设位姿→方格扫描→四段规划→STOP
+                               （阻塞约 2~10s，屏幕显示进度与四段结果；之后整车流程不再用雷达） */
     TaskCode = Depart;  /* 开始 */
 }
 
