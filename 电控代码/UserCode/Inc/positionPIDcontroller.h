@@ -5,6 +5,7 @@
 #include "Emm_V5.h"
 #include "delay.h"
 #include <stdint.h>
+#include "yawPIDcontroller.h"
 
 /**
  * @brief 位置修正PID控制器（X直行 / Y平移 两轴各一个）
@@ -26,7 +27,7 @@ void PositionPID_Init(void);
    dx→小车Y(平移)、dy→小车X(直行)，方向已按实测取反 */
 void AGV_Position_Correct(int16_t dx, int16_t dy);
 /* 视觉闭环修正主流程：阻塞持续修正直到"真对准"或超时，退出前自动停车。
-   内部循环读 OpenMV 数据（依赖 openmv.h），按 AGV_CTRL_TICK_MS 节拍调 AGV_Position_Correct。
+   内部循环读 OpenMV 数据（依赖 camera.h），按 AGV_CTRL_TICK_MS 节拍调 AGV_Position_Correct。
    timeout_ms = 本段修正允许的总时长，各阶段可自行传不同值；用 AGV_CORRECT_TMO_MS 作默认。 */
 #define AGV_CORRECT_TMO_MS  3000U   /* 修正超时默认值(ms)，调用点可按阶段改写 */
 void AGV_Correct(uint32_t timeout_ms);

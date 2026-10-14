@@ -4,6 +4,7 @@
 #include "stm32f4xx_hal.h"
 #include "yawPIDcontroller.h"
 
+/* 小车当前坐标(mm)，上电记作原点；每次 AGV_Position_Go() 走完自动锚定到目标点 */
 uint16_t AGV_Position_X = Origin_X;
 uint16_t AGV_Position_Y = Origin_Y;
 
@@ -21,6 +22,7 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
 	float n = distance/251.33;
 	uint32_t p = (uint32_t)(n*3200);
 	dir^=1;
+	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
 	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
@@ -36,8 +38,7 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
 	HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	while(can.rxData[0] != 0xFD || can.rxData[1] != 0x9F);
-	can.rxFrameFlag = false;
+	Emm_V5_WaitArrive(EMM_V5_ARRIVE_TMO_MS);		// 等电机到位回帧(0xFD 0x9F)，超时兜底不卡死
 
 	HAL_Delay(200);
 }
@@ -56,6 +57,7 @@ void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 	float n = distance/251.33;
 	uint32_t p = (uint32_t)(n*3200);
 
+	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
 	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
@@ -71,18 +73,17 @@ void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
 	HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	while(can.rxData[0] != 0xFD || can.rxData[1] != 0x9F);
-	can.rxFrameFlag = false;
+	Emm_V5_WaitArrive(EMM_V5_ARRIVE_TMO_MS);		// 等电机到位回帧(0xFD 0x9F)，超时兜底不卡死
 
 	HAL_Delay(200);
 }
 
 /**
  * @brief 重新锚定小车位置
- * 
+ *
  * @param x X坐标
  * @param y Y坐标
- */	
+ */
 void AGV_Position_Set(uint16_t x, uint16_t y)
 {
 	AGV_Position_X = x;
@@ -91,17 +92,13 @@ void AGV_Position_Set(uint16_t x, uint16_t y)
 
 /**
  * @brief 移动到目标位置
- * 
+ *
  * @param x 目标X坐标
  * @param y 目标Y坐标
  * @param priDir 优先方向 0:X, 1:Y
- */	
-void AGV_Position_Go(uint16_t x, uint16_t y, uint16_t vel, uint8_t priDir)
+ */
+void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir)
 {
-	/* 差值必须用有符号数承接：用 uint16_t 会有两个致命问题——
-	   1) (dx >= 0) 对无符号数恒真，x_flag/y_flag 永远是 1，下面的 ^1 反向分支全成死代码；
-	   2) 目标坐标小于当前坐标时，负差值回绕成 65536-|Δ|，小车会按几十米去跑。
-	   int32_t 是为了容纳 uint16_t 两端相减的最大跨度 ±65535，int16_t 会溢出。 */
 	int32_t sdx = (int32_t)x - (int32_t)AGV_Position_X;
 	int32_t sdy = (int32_t)y - (int32_t)AGV_Position_Y;
 	uint16_t dx = (sdx < 0) ? (uint16_t)(-sdx) : (uint16_t)sdx;
@@ -114,23 +111,23 @@ void AGV_Position_Go(uint16_t x, uint16_t y, uint16_t vel, uint8_t priDir)
 	{
 		if(AGV_Direction == 0)
 		{
-			AGV_Position_GoStraight(dx, vel, x_flag);
-			AGV_Position_Translate(dy, vel, y_flag);
+			AGV_Position_GoStraight(dx, Vel, x_flag);
+			AGV_Position_Translate(dy, Vel, y_flag);
 		}
 		else if(AGV_Direction == 1)
 		{
-			AGV_Position_Translate(dx, vel, x_flag^1);
-			AGV_Position_GoStraight(dy, vel, y_flag);
+			AGV_Position_Translate(dx, Vel, x_flag^1);
+			AGV_Position_GoStraight(dy, Vel, y_flag);
 		}
 		else if (AGV_Direction == 2)
 		{
-			AGV_Position_GoStraight(dx, vel, x_flag^1);
-			AGV_Position_Translate(dy, vel, y_flag^1);
+			AGV_Position_GoStraight(dx, Vel, x_flag^1);
+			AGV_Position_Translate(dy, Vel, y_flag^1);
 		}
 		else if (AGV_Direction == 3)
 		{
-			AGV_Position_Translate(dx, vel, x_flag);
-			AGV_Position_GoStraight(dy, vel, y_flag^1);
+			AGV_Position_Translate(dx, Vel, x_flag);
+			AGV_Position_GoStraight(dy, Vel, y_flag^1);
 		}
 	}
 	// Y方向先行
@@ -138,23 +135,23 @@ void AGV_Position_Go(uint16_t x, uint16_t y, uint16_t vel, uint8_t priDir)
 	{
 		if(AGV_Direction == 0)
 		{
-			AGV_Position_Translate(dy, vel, y_flag);
-			AGV_Position_GoStraight(dx, vel, x_flag);
+			AGV_Position_Translate(dy, Vel, y_flag);
+			AGV_Position_GoStraight(dx, Vel, x_flag);
 		}
 		else if(AGV_Direction == 1)
 		{
-			AGV_Position_GoStraight(dy, vel, y_flag);
-			AGV_Position_Translate(dx, vel, x_flag^1);
+			AGV_Position_GoStraight(dy, Vel, y_flag);
+			AGV_Position_Translate(dx, Vel, x_flag^1);
 		}
 		else if (AGV_Direction == 2)
 		{
-			AGV_Position_Translate(dy, vel, y_flag^1);
-			AGV_Position_GoStraight(dx, vel, x_flag^1);
+			AGV_Position_Translate(dy, Vel, y_flag^1);
+			AGV_Position_GoStraight(dx, Vel, x_flag^1);
 		}
 		else if (AGV_Direction == 3)
 		{
-			AGV_Position_GoStraight(dy, vel, y_flag^1);
-			AGV_Position_Translate(dx, vel, x_flag);
+			AGV_Position_GoStraight(dy, Vel, y_flag^1);
+			AGV_Position_Translate(dx, Vel, x_flag);
 		}
 	}
 	Yaw_MovingOffsetEnd();
@@ -190,8 +187,7 @@ void AGV_Position_Rotate(uint8_t dir)
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
 	delay_us(250);		
 	
-	while(can.rxFrameFlag == false);
-	can.rxFrameFlag = false;
+	Emm_V5_WaitRxFrame(EMM_V5_ACK_TMO_MS);		// 等命令回帧(原为死等，加超时防卡死)
 	
 	HAL_Delay(1910);
 	
@@ -207,8 +203,7 @@ void AGV_Position_Rotate(uint8_t dir)
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
 	delay_us(250);	
 	
-	while(can.rxFrameFlag == false);
-	can.rxFrameFlag = false;
+	Emm_V5_WaitRxFrame(EMM_V5_ACK_TMO_MS);   /* 等命令回帧(原为死等，加超时防卡死) */
 }
 
 /**
@@ -217,15 +212,7 @@ void AGV_Position_Rotate(uint8_t dir)
  */
 void AGV_Position_Depart_1()
 {
-	Yaw_MovingOffsetStart();
-	Emm_V5_Pos_Control(1, Wheel1PositiveDir^1, 100, 50, 4265, 2, 1);
-	HAL_Delay(1);
-	Emm_V5_Pos_Control(3, Wheel3PositiveDir^1, 100, 50, 4265, 2, 1);
-	HAL_Delay(1);
-	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
-	HAL_Delay(1);
-	HAL_Delay(2000);
-	AGV_Position_GoStraight(800, 100, 0);
+	AGV_Position_Go(QRCode, 0);
 }
 
 void AGV_Position_Depart_2()
@@ -245,55 +232,42 @@ void AGV_Position_Depart_2()
 
 void AGV_Position_Qcode_to_Raw()
 {
-	AGV_Position_Translate(50, 150, 1);
-	AGV_Position_GoStraight(810, 150, 1);
-	Yaw_MovingOffsetEnd();
+	AGV_Position_Go(Waypoint_LB, 0);
 	AGV_TurnLeft();
-	HAL_Delay(500);
-	Yaw_MovingOffsetStart();
-	AGV_Position_GoStraight(815, 150, 1);
-	AGV_Position_Translate(35, 150, 0);
-	Yaw_MovingOffsetEnd();
+	AGV_Position_Go(Raw, 0);
 }
+
 void AGV_Position_Raw_to_Rough()
 {
+	AGV_Position_Go(Raw_Depart, 0);
 	AGV_TurnRight();
-	Yaw_MovingOffsetStart();
-	AGV_Position_GoStraight(1800, 200, 0);
-	Yaw_MovingOffsetEnd();
+	AGV_Position_Go(Rough, 0);
 	AGV_TurnRight();
 }
+
 void AGV_Position_Rough_to_Temp()
 {
-	Yaw_MovingOffsetStart();
-	AGV_Position_GoStraight(890, 150, 0);
-	Yaw_MovingOffsetEnd();
+	AGV_Position_Go(Waypoint_RF, 0);
     AGV_TurnRight();
-	Yaw_MovingOffsetStart();
-    AGV_Position_GoStraight(885, 150, 0);
-
+	AGV_Position_Go(Temp, 0);
 }
+
 void AGV_Position_Temp_to_Raw()
 {
-	AGV_Position_GoStraight(900, 150, 0);
-	Yaw_MovingOffsetEnd();
+	AGV_Position_Go(Waypoint_RB, 0);
     AGV_TurnRight();
-	Yaw_MovingOffsetStart();
-    AGV_Position_GoStraight(800, 150, 0);
+	AGV_Position_Go(Raw, 0);
 }
+
 /**
  * @brief 回到原点
  * 
  */
 void AGV_Position_GoBack_1()
 {
-	AGV_Position_GoStraight(910, 150, 0);
-	HAL_Delay(200);
-	Yaw_MovingOffsetEnd();
+	AGV_Position_Go(Waypoint_RF, 0);
 	AGV_TurnRight();
-	AGV_Position_GoStraight(1865, 150, 0);
-	HAL_Delay(200);
-	AGV_Position_Translate(150, 150, 0);
+	AGV_Position_Go(Destination, 0);
 }
 void AGV_Position_GoBack_2()//未修改
 {

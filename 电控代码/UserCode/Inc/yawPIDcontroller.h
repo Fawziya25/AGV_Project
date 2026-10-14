@@ -49,6 +49,7 @@ typedef struct
     float            b_hat;     /* 最新零偏估计(°/s),跨窗口EMA平滑 */
 } ZeroBias_TypeDef;
 
+/* 小车朝向: 0:X+ 1:Y+ 2:X- 3:Y-，由 AGV_TurnLeft/Right 每次转弯后更新 */
 extern uint8_t AGV_Direction;
 
 /* yawPID / yawOffset / TurnCpltFlag 均为 yawPIDcontroller.c 内部静态量,不对外导出 */

@@ -1,4 +1,5 @@
 #include "Emm_V5.h"
+#include "test.h"    /* Dbg_Service —— 下面两个等待循环是纯 HAL_GetTick 自旋，不经过 HAL_Delay */
 
 /**********************************************************
 ***	Emm_V5.0步进闭环控制例程
@@ -313,9 +314,72 @@ void Emm_V5_Synchronous_motion(uint8_t addr)
   cmd[1] =  0xFF;                       // 功能码
   cmd[2] =  0x66;                       // 辅助码
   cmd[3] =  0x6B;                       // 校验字节
-  
+
   // 发送命令
   can_SendCmd(cmd, 4);
+}
+
+/**********************************************************
+*** CAN 回帧等待（主机侧辅助，非协议命令）
+*** 等待期间逐帧"消费" can.rxFrameFlag，保证等到的是本次发送之后
+*** 新到的帧；并都带超时——电机没回帧(丢帧/堵转保护)时不会把主流程卡死。
+**********************************************************/
+/**
+  * @brief    清回帧标志：发命令前调用，使随后的等待只认本次动作新到的帧
+  * @retval   None
+  */
+void Emm_V5_ClearRxFrame(void)
+{
+  can.rxFrameFlag = false;
+}
+
+/**
+  * @brief    等待电机"到位"回帧(功能码0xFD + 状态0x9F)
+  * @param    tmo_ms ：等待超时(ms)
+  * @retval   1=等到到位帧；0=超时
+  * @note     逐帧消费、不区分地址；调用前先用 Emm_V5_ClearRxFrame() 清历史帧。
+  *           四轮同步运动时只要有一个电机报到就算到位。
+  */
+uint8_t Emm_V5_WaitArrive(uint32_t tmo_ms)
+{
+  uint32_t t0 = HAL_GetTick();
+
+  while((HAL_GetTick() - t0) < tmo_ms)
+  {
+    Dbg_Service();                              // 调试服务:到点刷OLED + 响应A8暂停
+    if(can.rxFrameFlag)
+    {
+      can.rxFrameFlag = false;                  // 消费本帧
+      if(can.rxData[0] == 0xFD && can.rxData[1] == 0x9F)
+      {
+        return 1;
+      }
+    }
+  }
+  return 0;
+}
+
+/**
+  * @brief    等待任意CAN回帧（确认命令已被电机接收）
+  * @param    tmo_ms ：等待超时(ms)
+  * @retval   1=收到回帧；0=超时
+  * @note     替代原来的 while(can.rxFrameFlag == false); 死等，加超时防卡死；
+  *           语义不变：标志已置位(已有帧)时立即返回。
+  */
+uint8_t Emm_V5_WaitRxFrame(uint32_t tmo_ms)
+{
+  uint32_t t0 = HAL_GetTick();
+
+  while(can.rxFrameFlag == false)
+  {
+    Dbg_Service();                              // 调试服务:到点刷OLED + 响应A8暂停
+    if((HAL_GetTick() - t0) >= tmo_ms)
+    {
+      return 0;
+    }
+  }
+  can.rxFrameFlag = false;
+  return 1;
 }
 
 /**********************************************************

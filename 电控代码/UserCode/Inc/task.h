@@ -12,9 +12,9 @@
 #include "yawPIDcontroller.h"
 #include <stdio.h>
 #include <stdint.h>
-#include "pick_ctrl.h"
+#include "pick.h"
 #include "QRcode.h"
-#include "openmv.h"
+#include "camera.h"
 #include "pick_task.h"
 
 typedef enum

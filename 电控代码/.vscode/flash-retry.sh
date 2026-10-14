@@ -24,20 +24,9 @@
 
 set -u
 
-# OpenOCD 位置不写死：默认从 LOCALAPPDATA 推导，换机器 / 升级 xpack 版本时用环境变量覆盖
-#   OPENOCD_ROOT="C:/path/to/xpack-openocd-x.y.z" bash .vscode/flash-retry.sh
-LA_DIR="$(printf '%s' "${LOCALAPPDATA:-$HOME/AppData/Local}" | sed -E 's#\\#/#g')"
-OPENOCD_ROOT="${OPENOCD_ROOT:-$LA_DIR/xpack-openocd/xpack-openocd-0.12.0-7}"
-OPENOCD="$OPENOCD_ROOT/bin/openocd.exe"
-SCRIPTS="$OPENOCD_ROOT/openocd/scripts"
+OPENOCD="C:/Users/Dawn/AppData/Local/xpack-openocd/xpack-openocd-0.12.0-7/bin/openocd.exe"
+SCRIPTS="C:/Users/Dawn/AppData/Local/xpack-openocd/xpack-openocd-0.12.0-7/openocd/scripts"
 ATTEMPTS="${ATTEMPTS:-30}"
-
-if [ ! -f "$OPENOCD" ]; then
-    echo "找不到 OpenOCD: $OPENOCD" >&2
-    echo "用 OPENOCD_ROOT 指定实际安装目录后重试，例如：" >&2
-    echo "  OPENOCD_ROOT=\"\$LOCALAPPDATA/xpack-openocd/xpack-openocd-0.12.0-7\" bash .vscode/flash-retry.sh" >&2
-    exit 2
-fi
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ELF="${1:-$HERE/../build/Debug/STM32F407_CAN_CMD.elf}"
 

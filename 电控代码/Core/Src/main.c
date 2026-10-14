@@ -28,6 +28,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "task.h"
+#include "test.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -76,7 +77,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-   HAL_Init();
+  HAL_Init();
 
   /* USER CODE BEGIN Init */
   
@@ -97,7 +98,15 @@ int main(void)
   MX_UART5_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
+  MX_TIM1_Init();
+  MX_TIM2_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
+  MX_UART4_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+  Test_Switch();/* 桌面测试：TEST_MODE=0 时立刻返回；!=0 则跑对应测试并停住，
+                   程序不会走到下一行的 AGV_Init()（模式表见 test.h） */
   AGV_Init();   /* 末尾阻塞在 menu_Init() 等A8启动，期间C6/C8切换路线 */
 
   /* USER CODE END 2 */
@@ -112,7 +121,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
   }
-  Pick_MoveTo POS_DEFAULT;/*结束后回到POS_DEFAULT*/
+  Pick_JumpTo POS_DEFAULT;/*结束后回到POS_DEFAULT*/
   /* USER CODE END 3 */
 }
 

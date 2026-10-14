@@ -6,7 +6,7 @@
     "cmake.preferredGenerators": [
         "Ninja"
     ],
-    "cortex-debug.openocdPath": "${env:LOCALAPPDATA}/xpack-openocd/xpack-openocd-0.12.0-7/bin/openocd.exe",
+    "cortex-debug.openocdPath": "C:/Users/Dawn/AppData/Local/xpack-openocd/xpack-openocd-0.12.0-7/bin/openocd.exe",
     "stm32cube-ide-clangd.path": "cube",
     "stm32cube-ide-clangd.arguments": [
         "starm-clangd",

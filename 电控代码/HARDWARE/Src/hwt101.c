@@ -1,6 +1,7 @@
 #include "hwt101.h"
 #include "usart.h"
 #include "yawPIDcontroller.h"
+#include "oled.h"
 
 /**********************************************************
 *** HWT101 单轴航向角 IMU（维特智能）驱动程序
@@ -354,8 +355,18 @@ float HWT101_GetWz(void)
     return hwt101.wz;
 }
 
+/* 手动零偏静止窗口时长(秒): 既是 IMU 端标定窗口, 也是 OLED 倒计时长度。
+   原代码 HAL_Delay(20000) 后又套了 20×HAL_Delay(1000), 实际等 40s, 且循环里的
+   OLED 调用参数错位(把 "%d" 当字符串、汉字指针当 size1、i 当 mode)又没有刷新,
+   已合并成下面这一个倒计时循环。 */
+#define HWT101_MANCAL_SEC  20U
+
 /**
  * @brief 手动获取零偏校准（写MANUALCALI=1，机器人必须完全静止后调用）
+ * @note  阻塞 HWT101_MANCAL_SEC 秒, 期间 OLED 显示倒计时; 整机必须静止
+ *        (臂/舵机也不要甩, 窗口内 |wz| 超过 ZB_RATE_GATE 会让零偏窗口作废)。
+ *        OLED_ShowString 只画可打印 ASCII, 汉字要用 OLED_ShowChinese(字模序号)。
+ *        只重画变化的数字, 每秒 OLED_Refresh() 一次, 不做整屏清屏避免闪烁。
  * @retval None
  * @author Sisyphus
  * @date 2026-08-18
@@ -364,7 +375,19 @@ void HWT101_ManualCal()
 {
     ZeroBias_Start();
     HWT101_ManualCalStart();
-    HAL_Delay(20000);
+
+    OLED_Clear();
+    OLED_ShowString(0, 0, (uint8_t *)"Calibrating", 16, 1);
+    /* 16号字宽8px, 两位数字共16px, 居中放在第2行: x=(128-16)/2=56 */
+    for(uint8_t sec = HWT101_MANCAL_SEC; sec > 0U; sec--)
+    {
+        OLED_ShowNum(56, 16, (uint32_t)sec, 2U, 16U, 1);
+        OLED_Refresh();
+        HAL_Delay(1000);
+    }
+    OLED_ShowNum(56, 16, 0U, 2U, 16U, 1);   /* 收尾显示 00, 表示窗口走完 */
+    OLED_Refresh();
+
     HWT101_ManualCalStop();
     ZeroBias_End();
 }

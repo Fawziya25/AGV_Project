@@ -51,12 +51,13 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     UserCode/Src/chassis.c
     UserCode/Src/positionPIDcontroller.c
     UserCode/Src/task.c
+    UserCode/Src/test.c
     UserCode/Src/delay.c
-    UserCode/Src/pick_ctrl.c
+    HARDWARE/Src/pick.c
     HARDWARE/Src/oled.c
     HARDWARE/Src/QRcode.c
     UserCode/Src/yawPIDcontroller.c
-    UserCode/Src/openmv.c
+    UserCode/Src/camera.c
     UserCode/Src/pick_task.c
     UserCode/Src/menu.c
 )

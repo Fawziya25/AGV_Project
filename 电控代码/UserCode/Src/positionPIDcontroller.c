@@ -1,7 +1,9 @@
 #include "positionPIDcontroller.h"
-#include "openmv.h"         /* 视觉修正顶层循环依赖 OpenMV 全局变量与函数 */
+#include "camera.h"         /* 视觉修正顶层循环依赖 OpenMV 全局变量与函数 */
 #include "oled.h"
+#include "test.h"           /* Dbg_Service —— 本循环是纯 HAL_GetTick 自旋，不经过 HAL_Delay */
 #include "stm32f4xx_hal.h"
+#include "yawPIDcontroller.h"
 #include <stdint.h>
 #include <stdlib.h>          /* abs */
 
@@ -107,8 +109,7 @@ static void AGV_Correct_Vel(float rpmX, float rpmY)
     Emm_V5_Synchronous_motion(0);   /* 广播触发多机同步 */
     delay_us(250);
 
-    while(can.rxFrameFlag == false){};
-    can.rxFrameFlag = false;
+    Emm_V5_WaitRxFrame(EMM_V5_ACK_TMO_MS);   /* 等命令回帧(原为死等，加超时防卡死) */
 }
 
 /**
@@ -140,8 +141,7 @@ void AGV_Position_Stop(void)
     Emm_V5_Synchronous_motion(0);
     delay_us(250);
 
-    while(can.rxFrameFlag == false){};
-    can.rxFrameFlag = false;
+    Emm_V5_WaitRxFrame(EMM_V5_ACK_TMO_MS);   /* 等命令回帧(原为死等，加超时防卡死) */
 }
 
 /**
@@ -152,9 +152,9 @@ void AGV_Position_Stop(void)
  *          相机帧率(实测~40fps)漂移，与 KP 标定的 10~20Hz 环境一致 → 无需重调 KP。
  *        - 对准判据：连续 AGV_ALIGN_HOLD_CNT 个节拍都在 |dx|,|dy|<=AGV_ALIGN_WIN_PX
  *          内才退出；单帧出窗/目标丢失即清零 → 防"过冲经过0点"或抖动造成的假对准。
- *        - 目标丢失(-999)时不下发(保持当前轮速)、等目标回来；全程无帧则空转到超时。
+ *        - 未识别到目标(cam_flag==0)时不下发(保持当前轮速)、等目标回来；全程无帧则空转到超时。
  *        - OLED 刷新(~20ms软I2C整屏)已移出本循环，避免拖乱 50ms 控制节拍。
- *        全局变量 target_dx/target_dy 等在 openmv.h 声明。
+ *        全局变量 dx/dy 等在 camera.h 声明。
  */
 void AGV_Correct(uint32_t timeout_ms)
 {
@@ -163,32 +163,35 @@ void AGV_Correct(uint32_t timeout_ms)
     uint32_t last_ctrl = 0;                 /* 上次真正下发轮速的时刻(0=首个节拍立即执行) */
     uint8_t  align_cnt = 0;                 /* 连续在窗口内的节拍数 */
 
+    float temp_yaw = ZeroBias_GetYaw();  /* 记录修正前的航向，修正后再回到此航向 */
+
     while((HAL_GetTick() - start_time) < timeout_ms)
     {
-        Openmv_OLED_Show();               /* 调试:显示当前帧数据 */
-        OpenMV_Service();       /* 接收链自愈：错误中止后重挂DMA，否则OpenMV_RxFlag永不刷新 */
+        //Dbg_ShowScreen(0);             /* 调试:显示当前帧数据(原 Cam_OLED_Show,已并入 test.c) */
+        Cam_Service();       /* 接收链自愈：错误中止后重挂DMA，否则cam_receive_flag永不刷新 */
+        Dbg_Service();       /* 调试服务:到点刷OLED + 响应A8暂停(本循环不走HAL_Delay,得手工调) */
 
         /* 控制节拍门：距上次下发不足 AGV_CTRL_TICK_MS 不处理(控制率锁~20Hz) */
         if((HAL_GetTick() - last_ctrl) < AGV_CTRL_TICK_MS) continue;
 
-        if(!OpenMV_RxFlag)
+        if(!cam_receive_flag)
         {
             last_ctrl = HAL_GetTick();      /* 无新帧也推进节拍，避免空转忙等 */
             continue;
         }
-        OpenMV_RxFlag = 0;
+        cam_receive_flag = 0;
         last_ctrl = HAL_GetTick();
 
         /* 无目标：不下发(保持上次轮速)、清零对准计数，等目标回来 */
-        if(target_dx == -999 || target_dy == -999)
+        if(cam_flag == 0U)
         {
             align_cnt = 0;
             continue;
         }
 
         /* 对准判定：在窗口内→计数；出窗/抖动→清零(防过冲经过0点时误停) */
-        if(target_dx <=  AGV_ALIGN_WIN_PX && target_dx >= -AGV_ALIGN_WIN_PX &&
-           target_dy <=  AGV_ALIGN_WIN_PX && target_dy >= -AGV_ALIGN_WIN_PX)
+        if(dx <=  AGV_ALIGN_WIN_PX && dx >= -AGV_ALIGN_WIN_PX &&
+           dy <=  AGV_ALIGN_WIN_PX && dy >= -AGV_ALIGN_WIN_PX)
         {
             if(++align_cnt >= AGV_ALIGN_HOLD_CNT) break;   /* 连续N节拍对准=完成 */
         }
@@ -197,7 +200,8 @@ void AGV_Correct(uint32_t timeout_ms)
             align_cnt = 0;
         }
 
-        AGV_Position_Correct(target_dx, target_dy);  /* 一轮PID：轴映射+麦轮逆解+下发 */
+        AGV_Position_Correct(dx, dy);  /* 一轮PID：轴映射+麦轮逆解+下发 */
     }
     AGV_Position_Stop();    /* 退出(真对准或超时)立即停车 */
+    AGV_SetYaw(temp_yaw);  /* 修正后回到修正前的航向 */
 }

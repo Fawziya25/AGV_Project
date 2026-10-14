@@ -8,12 +8,14 @@ static float omega;                  /* 小车整体角速度 */
 static uint8_t TurnCpltFlag = 0;     /* 转弯完成标志位 */
 static float target;                 /* 目标航向角 */
 
-// 0:X+ 1:Y+ 2:X- 3:Y-
-uint8_t AGV_Direction = 3;           /* 小车朝向 */
+/* 小车朝向: 0:X+ 1:Y+ 2:X- 3:Y- (逆时针递增)，AGV_Position_Go() 靠它把
+   目标点差量拆成"直行/平移"两段；每次转弯后由 TurnLeft/TurnRight 更新 */
+uint8_t AGV_Direction = 3;
 
 static void AGV_StopNow(void);
 static void AGV_SetOmega(float omega);
 static void YawOffset_Init(void);
+
 /**********************************************************
 *** 带门控的陀螺零偏在线估计器
 ***
@@ -300,7 +302,7 @@ void AGV_TurnLeft(void)
 
 /**
  * @brief 右转
- * 
+ *
  * @retval None
  * @author Fawziya
  * @date 2026-08-18
@@ -332,6 +334,9 @@ void Yaw_MovingOffsetStart(void)
  * @brief 结束记录行进偏差
  * @note 段内漂移已由运动期连续补偿(b̂·dt)扣除,此处直接取补偿后读数差,
  *       差值 = 真实物理跑偏v + 估计残差(b−b̂)·T_s,不得再减b̂·T_s(会重复计数)
+ *       用 += 累加:AGV_Position_Go() 一次会走"直行/平移"两段,两段都在下一次
+ *       转弯之前结束,必须把两段跑偏累加起来;改成 = 会丢掉前一段的跑偏。
+ *       (累加值在 TurnLeft/TurnRight 里用掉后立即清 0,不会跨转弯重复计)
 */
 void Yaw_MovingOffsetEnd(void)
 {
@@ -366,8 +371,7 @@ void AGV_SetOmega(float omega)
     Emm_V5_Synchronous_motion(0);    // 广播地址0触发
     delay_us(250);
 
-    while(can.rxFrameFlag == false);
-    can.rxFrameFlag = false;
+    Emm_V5_WaitRxFrame(EMM_V5_ACK_TMO_MS);   /* 等命令回帧(原为死等，加超时防卡死) */
 }
 
 /**
@@ -390,8 +394,7 @@ void AGV_StopNow(void)
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
 	delay_us(250);	
 	
-	while(can.rxFrameFlag == false);
-	can.rxFrameFlag = false;
+	Emm_V5_WaitRxFrame(EMM_V5_ACK_TMO_MS);		// 等命令回帧(原为死等，加超时防卡死)
 }
    
 /**
