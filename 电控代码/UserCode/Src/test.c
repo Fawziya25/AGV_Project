@@ -486,19 +486,20 @@ static void Test_Correct(void)
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     HWT101_Init(&huart5); /* 初始化HWT101 */
 
-    Pick_JumpTo POS_OBSERVE_CIRCLE;  /* 臂摆到圆环观察位 */
-    Pick_Gripper_Observe();          /* 夹爪张开，别挡住观察位 */
+    // Pick_JumpTo POS_OBSERVE_RAW;  /* 臂摆到圆盘观察位 */
+    // Pick_Gripper_Observe();          /* 夹爪张开，别挡住观察位 */
 
-    if(Cam_RequestDisc(NULL, NULL, CAM_REQ_TMO_MS))
-    {
-        AGV_Correct(5000);           /* 闭环到对准或 5s 超时，退出时自动停车 */
-    }
-    else
-    {
-        OLED_Clear();
-        OLED_ShowString(0, 0, (uint8_t *)"vision timeout", 16, 1);
-        OLED_Refresh();
-    }
+    // if(Cam_RequestDisc(NULL, NULL, CAM_REQ_TMO_MS))
+    // {
+    //     AGV_Correct(20000);           /* 闭环到对准或 5s 超时，退出时自动停车 */
+    // }
+    // else
+    // {
+    //     OLED_Clear();
+    //     OLED_ShowString(0, 0, (uint8_t *)"vision timeout", 16, 1);
+    //     OLED_Refresh();
+    // }
+    Place_ROUGH();
     HAL_Delay(2000);
 }
 
@@ -815,7 +816,7 @@ static void Test_Motor(void)
     //Pick_Test_MotorR();             /* 半径轴：把上面那行注释掉、这行打开 */
     //Pick_Test_TurnTable();          /* 转盘舵机：A(30°)/B(150°)/C(270°)，不需要 CAN */
     //Pick_Test_ZServo();             /* Z轴舵机：0°/100°/50°，不需要 CAN（臂先抬高）*/
-    Pick_Test_Gripper();            /* 夹爪：观察/抓紧/放开 走 3 轮停在抓紧，不需要 CAN */
+    //Pick_Test_Gripper();            /* 夹爪：观察/抓紧/放开 走 3 轮停在抓紧，不需要 CAN */
 
 }
 

@@ -359,7 +359,7 @@ float HWT101_GetWz(void)
    原代码 HAL_Delay(20000) 后又套了 20×HAL_Delay(1000), 实际等 40s, 且循环里的
    OLED 调用参数错位(把 "%d" 当字符串、汉字指针当 size1、i 当 mode)又没有刷新,
    已合并成下面这一个倒计时循环。 */
-#define HWT101_MANCAL_SEC  20U
+#define HWT101_MANCAL_SEC  5U
 
 /**
  * @brief 手动获取零偏校准（写MANUALCALI=1，机器人必须完全静止后调用）
