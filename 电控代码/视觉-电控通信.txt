@@ -11,7 +11,7 @@
 视觉返回(全部为循环返回，只有flag=1，电控执行下一步操作)：
 0x00: [AA 00 flag BB]                                                flag=1 
 0x01: [AA 01 flag BB]                                                flag=1 任务码接收成功
-0x02: [AA 02 flag dxH dxL dyH dyL BB]                    flag=1-6为对应颜色，对dx dy修正 (边沿静止时，flag!=0，发送对应颜色编号的flag)
+0x02: [AA 02 flag dxH dxL dyH dyL BB]                    flag=(1到6)为对应颜色，对dx dy修正 (边沿静止时，flag!=0，发送对应颜色编号的flag)
 0x03: [AA 03 flag c1 c2 c3 BB]                                  flag=1 等待到框内从无到有， 返回三个框内的颜色  分别为左上 下 右上
 0x04: [AA 04 flag dxH dxL dyH dyL BB]                    flag=num 为圆环编号(或者是识别到圆环)，对dx，dy修正
 0x05: [AA 05 flag dxH dxL dyH dyL BB]                    flag=1 识别到对应颜色 对dx，dy修正

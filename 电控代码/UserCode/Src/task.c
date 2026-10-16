@@ -62,7 +62,7 @@ void TaskProc(void)
             break;
 //===================================到达扫码位置==================================
         case QRcode:
-            QRcode_Task(); //QRcode_Task() 内部：扫码 → 显示 → 把任务码下发给相机
+            QRcode_Task(); 
             TaskCode = Move1;
             break;
         case Move1:
