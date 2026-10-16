@@ -211,7 +211,7 @@ void Place_ROUGH(void)
     Pick_Gripper_Observe();
     if(Cam_RequestRing(NULL, NULL, NULL, CAM_REQ_TMO_MS))
     {
-        AGV_Correct(5000);      /* 拿不到偏差就不修正，免得用旧 dx/dy 把车带偏 */
+        AGV_Correct(30000);      /* 拿不到偏差就不修正，免得用旧 dx/dy 把车带偏 */
     }
     Pick_Gripper_Release();
 

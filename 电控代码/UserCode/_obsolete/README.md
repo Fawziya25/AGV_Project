@@ -23,14 +23,27 @@ C 的 `#include "xxx.h"` 会**先搜包含它的那个文件所在目录**，而
 
 - `pick.h` —— 旧版机械臂头文件（`Pick_MoveTo` 一代）
 
-## 建议但**还没做**（改动记录第 49 节的"未做"）
+## 已清掉的旧副本（2026-10-16）
 
 下面这些同样是改名/搬迁后遗留的旧副本，**都不在 `CMakeLists.txt` 里、不参与编译**，
-留着会误导 grep 与"按文件名找实现"：
+留着会误导 grep 与"按文件名找实现"。2026-10-16 已**直接删除**（没搬进本目录）：
 
 - `UserCode/Inc/pick_ctrl.h`、`UserCode/Src/pick_ctrl.c`（`pick_ctrl` → `pick` 那一代）
-- `UserCode/Src/pick.c`（旧实现，现行实现在 `HARDWARE/Src/pick.c`）
 - `UserCode/Src/openmv.c`、`UserCode/Inc/openmv.h`（旧 ASCII 协议时代，已被 `camera.*` 取代；
   注意 `openmv.c` 里还在调 `HAL_UARTEx_ReceiveToIdle_DMA(&huart1, ...)`，grep 时会撞车）
 
-要清的话一并移到这里即可（移之前先确认没有编译单元 include 它们）。
+要取回就在删除前的那个 commit 上 `git show <commit>:<路径>`。
+
+`UserCode/Src/pick.c`（旧实现，现行实现在 `HARDWARE/Src/pick.c`）**还留着没清** ——
+它的头文件 `UserCode/Inc/pick.h` 已经搬走了，所以它单独放着连编译都过不了；
+好在没有任何编译单元 include 它，暂时无害。
+
+## ⚠️ `pick_task.*` **不是**旧副本，别跟着一起清
+
+`UserCode/Src/pick_task.c` / `UserCode/Inc/pick_task.h` 是**现行代码**：
+`task.h`、`task.c`、`test.c` 都 include 它，`Pick_RAW` / `Pick_ROUGH` / `Place_ROUGH` /
+`Place_TEMP` 只在它里面声明，`CMakeLists.txt` 也编它 —— 删了会连带任务调度整块编译不过。
+
+2026-10-16 搬目录（`D:\Projects\stm32` → `D:\Projects\github`）时它俩被误删过一次，
+`build/Debug` 配置直接卡在 `Cannot find source file: UserCode/Src/pick_task.c`。
+以后按上面那份清单清理废弃副本时，认准清单，别按"看着像旧名字"下手。

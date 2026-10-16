@@ -5,7 +5,7 @@
 #include "pick_task.h"
 #include "positionPIDcontroller.h"
 #include "menu.h"
-#include "test.h"       /* Dbg_Init —— 原 dbg.h，已并进 test.h/test.c */
+#include "test.h"  
 #include "radar_task.h" /* 雷达四段路径规划（Radar/ 模块） */
 #include <stdint.h>
 
@@ -26,7 +26,7 @@ uint8_t Route_id=0;
 void AGV_Init(void)
 {
     OLED_Init();
-    Dbg_Init();           /* 开TIM7调试服务:周期刷相机数据 + A8短按暂停/继续(必须在OLED_Init之后) */
+    Dbg_Init();           /* 开TIM7调试服务:周期刷相机数据 + A8短按暂停/继续 */
     Pick_Init();
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     DWT_Init();// 初始化DWT,用于微秒级延时
