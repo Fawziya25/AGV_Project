@@ -24,11 +24,22 @@
 
 set -u
 
-OPENOCD="C:/Users/Dawn/AppData/Local/xpack-openocd/xpack-openocd-0.12.0-7/bin/openocd.exe"
-SCRIPTS="C:/Users/Dawn/AppData/Local/xpack-openocd/xpack-openocd-0.12.0-7/openocd/scripts"
+# openocd 的位置按环境变量推，不再写死用户名（原来写死的是上一台机器的用户目录，本机没有 → 脚本必失败）
+#   Git Bash 里 $LOCALAPPDATA 是 Windows 风格（C:\Users\xx\AppData\Local），统一转成正斜杠给 openocd
+LOCAL="${LOCALAPPDATA:-$HOME/AppData/Local}"
+LOCAL="$(printf '%s' "$LOCAL" | tr '\\' '/')"
+OOCD_DIR="${OOCD_DIR:-$LOCAL/xpack-openocd/xpack-openocd-0.12.0-7}"
+OPENOCD="$OOCD_DIR/bin/openocd.exe"
+SCRIPTS="$OOCD_DIR/openocd/scripts"
 ATTEMPTS="${ATTEMPTS:-30}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ELF="${1:-$HERE/../build/Debug/STM32F407_CAN_CMD.elf}"
+
+if [ ! -x "$OPENOCD" ]; then
+    echo "找不到 openocd: $OPENOCD" >&2
+    echo "用 OOCD_DIR=... 指定安装目录，或检查 STM32 VS Code 扩展是否装了 xpack-openocd" >&2
+    exit 2
+fi
 
 if [ ! -f "$ELF" ]; then
     echo "找不到 ELF: $ELF" >&2

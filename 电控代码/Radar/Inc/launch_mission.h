@@ -124,6 +124,22 @@
 #endif
 
 /*
+ * 用哪一份位姿（2026-10-14 加，起因：本机 SET_POSE 把上位机标定的朝向覆盖成 0°，
+ * 扫出来的障碍方格位置和数量全不对）：
+ *
+ *   1 = **不覆盖**：跳过 SET_POSE/SAVE_POSE，直接用雷达 Flash 里那份位姿
+ *       （SELECT_ZONE 载入的，也就是上位机标定的那份）。现场扫描/规划与上位机一致，
+ *       也不用把 X/Y/朝向抄进代码。**推荐**。
+ *   0 = 每次上电用 Launch_SetPose() 指定的 X/Y/朝向覆盖本次**会话**位姿。
+ *       必须和上位机看到的一致，否则格子全错；数值在 radar_config.h。
+ *
+ * 注意：置 1 时 Launch_SetPose() 仍可调用，但值不会被发出去（只用于显示/对照）。
+ */
+#ifndef LAUNCH_USE_SAVED_POSE
+#define LAUNCH_USE_SAVED_POSE     0U
+#endif
+
+/*
  * 1 = 使用例程的 demo_console/demo_common 打印调试日志（需要这两个模块）；
  * 0 = 本模块不依赖任何调试输出，可单独放进你自己的工程。
  * 本项目为 0：AGV 工程没有那两个模块，进度/结果都通过 OLED 显示（见 radar_task.c）。
