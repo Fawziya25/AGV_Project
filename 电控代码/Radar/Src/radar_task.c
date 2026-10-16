@@ -10,6 +10,25 @@
 #include <stdio.h>
 #include <string.h>
 
+/* ======================== 角度换算 ======================== */
+
+/*
+ * 角度（度，可带小数）→ heading_q6。
+ * 雷达线上字段是 uint16 定点：heading_q6 = round(角度 × 64) mod 23040，
+ * 即分辨率 1/64° = 0.015625°，一圈正好 23040 个格点（说明书 §9）。
+ * 所以小数角度只在 0.015625° 的格点上精确，这里四舍五入到最近格点：
+ *   12.5f → 800   12.502f → 800   12.508f → 801   -0.01f → 23039   360.0f → 0
+ * 用 float 而不是 double：本工程 FPU 是单精度（-mfpu=fpv4-sp-d16），f 后缀省一次转换。
+ */
+static uint16_t Radar_HeadingDegToQ6(float deg)
+{
+    float q6 = deg * 64.0f;
+    int32_t rounded = (int32_t)((q6 >= 0.0f) ? (q6 + 0.5f) : (q6 - 0.5f));
+    int32_t wrapped = rounded % 23040;
+    if (wrapped < 0) wrapped += 23040;
+    return (uint16_t)wrapped;
+}
+
 /* ======================== 内部状态 ======================== */
 
 static uint8_t s_zone;              /* 选中的启停区（工作区域）1/2 */
@@ -171,12 +190,12 @@ bool Radar_SetZone(uint8_t zone)
     if (zone == 1U) {
         x_mm = (int16_t)RADAR_ZONE1_POSE_X_MM;
         y_mm = (int16_t)RADAR_ZONE1_POSE_Y_MM;
-        heading_q6 = (uint16_t)(((uint32_t)RADAR_ZONE1_POSE_HEADING_DEG * 64U) % 23040U);
+        heading_q6 = Radar_HeadingDegToQ6(RADAR_ZONE1_POSE_HEADING_DEG);
         start_grid = (uint8_t)RADAR_ZONE1_START_GRID;
     } else if (zone == 2U) {
         x_mm = (int16_t)RADAR_ZONE2_POSE_X_MM;
         y_mm = (int16_t)RADAR_ZONE2_POSE_Y_MM;
-        heading_q6 = (uint16_t)(((uint32_t)RADAR_ZONE2_POSE_HEADING_DEG * 64U) % 23040U);
+        heading_q6 = Radar_HeadingDegToQ6(RADAR_ZONE2_POSE_HEADING_DEG);
         start_grid = (uint8_t)RADAR_ZONE2_START_GRID;
     } else {
         return false;

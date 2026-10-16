@@ -29,16 +29,18 @@
 
 /* ---- 启停区 1：雷达位姿 + 出发点方格 ---- */
 
-#define RADAR_ZONE1_POSE_X_MM          150     /* 待填：雷达自身在场地中的 X（mm），两区都 -200~500 */
+#define RADAR_ZONE1_POSE_X_MM          330     /* 待填：雷达自身在场地中的 X（mm），两区都 -200~500 */
 #define RADAR_ZONE1_POSE_Y_MM          2200    /* 待填：区域 1 的 Y 必须 1900~2600 */
-#define RADAR_ZONE1_POSE_HEADING_DEG   0U      /* 待填：雷达朝向 0~359°（0° 定义见说明书 §9） */
+#define RADAR_ZONE1_POSE_HEADING_DEG   287.5f    /* 待填：雷达朝向，**可写小数**（如 12.5f、-37.25f）。
+                                                  线上是 1/64° 定点：heading_q6 = round(角度×64) mod 23040，
+                                                  分辨率 0.015625°，转换见 radar_task.c 的 Radar_HeadingDegToQ6() */
 #define RADAR_ZONE1_START_GRID         4U      /* 待填：车停在启停区1 时所在的方格 0~24 */
 
 /* ---- 启停区 2：雷达位姿 + 出发点方格 ---- */
 
-#define RADAR_ZONE2_POSE_X_MM          150     /* 待填：两区都 -200~500 */
+#define RADAR_ZONE2_POSE_X_MM          330     /* 待填：两区都 -200~500 */
 #define RADAR_ZONE2_POSE_Y_MM          0       /* 待填：区域 2 的 Y 必须 -200~500 */
-#define RADAR_ZONE2_POSE_HEADING_DEG   0U      /* 待填 */
+#define RADAR_ZONE2_POSE_HEADING_DEG   107.5f    /* 待填：可写小数 */
 #define RADAR_ZONE2_START_GRID         0U     /* 待填：车停在启停区2 时所在的方格 0~24 */
 
 /* ---- 四段路线：起点 -> 14 -> 10 -> 22 -> 14 ---- */
