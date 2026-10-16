@@ -54,6 +54,69 @@ uint8_t Radar_GetStartGrid(void);
    规划已经开始后返回 false。 */
 bool Radar_SetStartGrid(uint8_t grid);
 
+/* ======================== 完整扫描的原始坐标（诊断用，2026-10-14 加） ========================
+ * 背景：障碍方格"位置和数量都不对"时，光看格子分不清是**朝向转了多少**还是 **X/Y 平移了多少**。
+ * 完整扫描（`SCAN_LOCKED 0x07`）会回传每个障碍的**场地毫米坐标** `(x_mm, y_mm)` + `grid_id`
+ * + 置信度，而且**不写雷达 Flash**（区别于方格扫描 0x08）。拿它和一个卷尺量出来的真实坐标比，
+ * 就能直接算出"转了多少度、移了多少毫米"，不用猜任何上位机约定。
+ *
+ *   Radar_RunFullScan(timeout_ms)  阻塞跑一次完整扫描（内部自己 Poll），true = 拿到结果
+ *   Radar_GetScanCount()           结果里的障碍个数
+ *   Radar_GetScanObstacle(i, &o)   取第 i 个（x/y/grid_id/confidence）
+ */
+bool Radar_RunFullScan(uint32_t timeout_ms);
+uint8_t Radar_GetScanCount(void);
+bool Radar_GetScanObstacle(uint8_t index, radar_client_obstacle_t *out);
+
+/* ======================== 位姿对照（排查"扫出来的格子不对"用） ========================
+ * 现场最常踩的坑：本机 SET_POSE 把上位机标定的位姿覆盖成 radar_config.h 里那套，
+ * 两者朝向差一点，障碍方格的位置和数量就全错。下面几条用来在屏上/程序里对照：
+ *
+ *   Radar_GetRadarPose()   雷达自报的位姿（HELLO）。选完区后 = 该区 Flash 里那份
+ *                          = 上位机标定的值。zone=0（区域未选定）时返回 false。
+ *   Radar_GetConfigPose()  本机 radar_config.h 里那套值；LAUNCH_USE_SAVED_POSE=0 时
+ *                          才会被 SET_POSE 发出去，=1 时不发、仅作对照。
+ *   Radar_IsUsingSavedPose() true = 当前不覆盖雷达那份（LAUNCH_USE_SAVED_POSE=1）。
+ */
+bool Radar_GetRadarPose(radar_client_pose_t *out);
+bool Radar_GetConfigPose(radar_client_pose_t *out);
+bool Radar_IsUsingSavedPose(void);
+
+/* ======================== 方格几何与逐格展开 ========================
+ * ⚠ 雷达回的是**拐点 + 终点**，不是逐格序列（说明书 §7：直线路径只返回终点；
+ *   移植示例 §6：路径结果不包含起点、包含拐点和终点）。所以一段 "4→14" 只回
+ *   1 个点（14）是**正常**的 —— 两点同列，本来就是一条直线，不是丢数据。
+ *   要**逐格**路线（驱车、或想在屏上看清走哪几格）用 Radar_ExpandLeg() 展开。
+ *
+ * 方格编号几何（说明书 §9，0~24 从 (0,0) 沿 Y 蛇形）：
+ *      20 21 22 23 24        row = id / 5
+ *      19 18 17 16 15        col = 奇数行 ? 4 - id%5 : id%5
+ *      10 11 12 13 14
+ *       9  8  7  6  5
+ *       0  1  2  3  4
+ */
+uint8_t Radar_GridRow(uint8_t grid);   /* 方格 → 行 0~4 */
+uint8_t Radar_GridCol(uint8_t grid);   /* 方格 → 列 0~4 */
+
+/*
+ * 把第 leg 段展开成**逐格**编号序列（不含起点、含终点），返回写入的格数；
+ * 0 = 无法展开：该段没跑到 / status≠0 / 缓冲不够 / 折点既不共行也不共列。
+ * 依据：段落 = 起点 → 拐点 → … → 终点，相邻两点必同行或同列，沿行/列逐格走过去。
+ * 缓冲 24 字节就够（5×5 网格里除起点外最多 24 格 = RADAR_PATH_MAX_POINTS）。
+ */
+uint8_t Radar_ExpandLeg(uint8_t leg, uint8_t *cells, uint8_t max_cells);
+
+/* ======================== 障碍方格（方格扫描的直接结果） ========================
+ * 来自那一次 14 圈**方格扫描**（EVENT_OBSTACLE_GRID）：它就是路径规划的输入，
+ * 也是"雷达认为哪几格被占用"的原始答案。雷达回传前已去重；**count=0 是有效空
+ * 结果（没有障碍），不是失败**（见说明书 §6/§7 方格结果）。
+ * 与路径结果一样只在本机 RAM，掉电即失；雷达 Flash 里另存着一份，
+ * 下次上电 PERSISTED_STATE 能读出来（那是规划用的，不是本函数这份）。
+ */
+uint8_t Radar_GetObstacleCount(void);
+bool Radar_GetObstacle(uint8_t index, uint8_t *grid_id);   /* index 0..count-1 */
+bool Radar_GridIsObstacle(uint8_t grid);                   /* 画 5×5 障碍图用 */
+
 /* ======================== 四段路径点（全局，整车流程可直接取） ========================
  * 每段一个数组：Radar_Path[i].points[0 .. count-1] 就是该段按行驶顺序的方格编号
  * （不含起点、含终点，元素是雷达方格编号 0~24）。想按"四个独立数组"写，

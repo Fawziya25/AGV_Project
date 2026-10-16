@@ -68,6 +68,23 @@
  *                       接在总线上；跑之前把臂放行程中段。**三个舵机不用 CAN**，
  *                       但摆 Z 轴之前要先**把臂抬起来**（运输位高度只有 10mm）。
  *                       夹爪那个只碰夹爪，不用管臂的位置。
+ *  10  Test_Radar      雷达（UART4 / PC10=TX PC11=RX / 115200）：
+ *                       只碰雷达 + OLED，不初始化相机/机械臂/陀螺仪（CAN 仍由
+ *                       Test_HwInit 按 TEST_CAN_ENABLE 决定，但雷达测试用不上）。
+ *                       一次 A8 后自动跑完：选默认启停区 → 握手 → 设位姿 →
+ *                       **一次 14 圈方格扫描** → 四段路径规划 → STOP。
+ *                       跑完分页显示（C6 下一页 / C8 上一页 / A8 重跑）：
+ *                         页0 障碍方格：5×5 图，"XX" = 有障碍、数字 = 空闲（方格扫描的结果）
+ *                         页1 位姿对照：雷达自报的位姿（= 上位机标定的那份）vs 本机 config
+ *                              那份，末行 diff 是朝向之差（±180° 归一）—— 扫出来格子不对先看这页
+ *                         页2 四段概览：Lx 起点>终点 s状态 n拐点数
+ *                         页3~6 第 1~4 段的**逐格**路线（雷达只回"拐点+终点"、直线段
+ *                              只回终点，屏上按说明书 §9 展开成逐格编号，6x8 小字）
+ *                       参数在 Radar/Inc/radar_config.h（`LAUNCH_USE_SAVED_POSE=1` 时
+ *                       不覆盖雷达里那份位姿，直接用上位机标定的）；障碍读
+ *                       Radar_GetObstacleCount() / Radar_GetObstacle() / Radar_GridIsObstacle()，
+ *                       位姿读 Radar_GetRadarPose() / Radar_GetConfigPose()，
+ *                       路径在 Radar_Path[4]（都在 Radar/Inc/radar_task.h）。**不返回。**
  *
  * **测试之间的分界线在初始化上**：Test_HwInit() 只做共用的那几样
  * （OLED / 调试服务 / CAN / DWT / 航向PID），各外设由每个测试函数在自己开头
@@ -86,7 +103,7 @@
  * 测路径的：cmake ... -DCMAKE_C_FLAGS="-DTEST_MODE=1"。不传就按下面的默认值。
  */
 #ifndef TEST_MODE
-#define TEST_MODE   2      /* 2026-10-14：调原料→车上槽位(模式 4)，测完改回 0 */
+#define TEST_MODE   10      /* 2026-10-14：调原料→车上槽位(模式 4)，测完改回 0 */
 #endif
 
 /* ==========================================================================

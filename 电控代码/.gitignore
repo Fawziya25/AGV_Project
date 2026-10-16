@@ -1,3 +1,20 @@
 build
 mx.scratch
 !.settings
+
+# ── 本机相关配置：不进版本库（2026-10-14 加）────────────────────────────
+# .vscode/launch.json 与 .vscode/settings.json 里必须写**本机绝对路径**
+# （GDB / OpenOCD / SVD 的具体位置），换台机器就会失效：
+#   之前提交进去的是 C:/Users/Dawn/... 那台机器的路径，换到本机后
+#   F5 报 "GDB executable ... was not found"，改完又因为退回 PATH 上的
+#   MinGW gdb 7.6.1 报 "GDB major version should be >= 9"。详见 改动记录.md 第 57/58 节。
+#
+# 为什么不写成 ${env:LOCALAPPDATA}/... 那种变量：settings.json **不支持**变量替换，
+# launch.json 里虽然支持，但变量展开失败时 cortex-debug 会**静默退回 PATH** 找 gdb，
+# 症状更难查 —— 所以这两个文件按"本机配置"处理，各人本地一份。
+#
+# 其余 .vscode 文件仍然是纳入版本管理的（都是可移植写法）：
+#   tasks.json（用 ${env:...}/${workspaceFolder}）、flash-retry.sh（用 $LOCALAPPDATA）、
+#   c_cpp_properties.json（只用 ${workspaceFolder}）。
+.vscode/launch.json
+.vscode/settings.json

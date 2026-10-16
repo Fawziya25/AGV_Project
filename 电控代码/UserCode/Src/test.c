@@ -36,6 +36,7 @@
 #include "positionPIDcontroller.h"  /* AGV_Correct / AGV_Position_Stop */
 #include "QRcode.h"                 /* Pick_Color1[3] 等 12 位任务码 */
 #include "oled.h"                   /* OLED_Clear / OLED_ShowString / OLED_Refresh */
+#include "radar_task.h"             /* 模式 10：Radar_Init / Radar_RunOnce / Radar_Path[4] */
 #include <stdint.h>
 #include <stdio.h>                  /* sprintf */
 
@@ -353,6 +354,7 @@ static void Test_Func(void);      /* 6 空壳,留给以后单步测带视觉的�
 static void Test_Camera(void);    /* 7 相机指令轮询(0x00~0x05 每5秒一条) */
 static void Test_OLED(void);      /* 8 屏幕自检(甲段不带TIM7 / 乙段带TIM7，不返回) */
 static void Test_Motor(void);     /* 9 臂测试：高度/半径步进电机 + 转盘/Z轴舵机(都不返回) */
+static void Test_Radar(void);     /* 10 雷达：一次方格扫描 + 四段路径规划，结果分页显示(不返回) */
 
 static void Test_GrabRawToCar(uint8_t box, uint8_t slot);  /* 测试4 用的单步时序 */
 static void Test_WaitStartKey(void);                       /* 跑测试前阻塞等 A8 短按 */
@@ -819,6 +821,309 @@ static void Test_Motor(void)
 
 }
 
+/* ========================== 10 雷达测试 ==========================
+   只碰雷达一条链路：UART4(PC10=TX / PC11=RX, 115200) + OLED。
+   相机、机械臂、陀螺仪都不初始化；CAN 由 Test_HwInit 按 TEST_CAN_ENABLE 决定 ——
+   雷达测试本身不用 CAN，台架上可以把它设 0 少等 500ms。
+
+   一次 A8 之后自动跑完整个流程（不返回）：
+     Radar_Init()    —— 选默认启停区(RADAR_ZONE_DEFAULT) + 装该区的雷达位姿与出发点方格，不发帧
+     Radar_RunOnce() —— 握手 → 选区 → 设位姿 → **一次 14 圈方格扫描** → 四段路径规划 → STOP
+   跑完在屏上分页显示（按键：C6 = 下一页 / C8 = 上一页 / A8 = 重跑一次）：
+     页0  障碍方格：5×5 图，"XX" = 有障碍、数字 = 空闲（方格扫描的直接结果）
+     页1  位姿对照：雷达自报的位姿（= 上位机标定的那份）vs 本机 config 那份，
+                    末行 diff 是两者朝向之差（归一到 ±180°）—— 扫出来格子不对先看这页
+     页2  概览：Lx 起点>终点 s状态 n拐点数（四行，一看四段是否都成了）
+     页3~6 第 1~4 段的**逐格**路线（6x8 小字，方格编号，每行 7 个）
+
+   ⚠ 页k 为什么要"展开"：雷达回的**不是逐格序列**，而是"拐点 + 终点"
+   （说明书 §7：直线路径只返回终点；移植示例 §6：不含起点、含拐点和终点）。
+   所以一段 4→14 只回 1 个点（14）是**正常**的 —— 两点同列，本来就是一条直线。
+   屏上先用 Radar_ExpandLeg() 按 §9 的方格几何展开成逐格，才看得清走哪几格；
+   页k 第 2 行左边是雷达原样回的拐点数，右边是展开后的格数。
+
+   判读：s0 成功；s1 无有效方格、s2 起点被占用、s3 终点被占用、s4 不可达、s5 参数、
+   s6 容量超限。整页 "Lx --" 表示这段没跑到（前面就失败了，看第 3 行 f 码：
+   f1 连接 / f2 位姿（多半是 radar_config.h 的"待填"值没填或越界） / f3 方格扫描 /
+   f4 读保存状态 / f5 雷达里没有有效方格 / f6 路径 / f7 雷达拒绝或协议错）。
+
+   结果数据本体在全局数组 Radar_Path[4]（见 radar_task.h），本函数只负责显示；
+   要拿数据直接用 Radar_Path[i].points[] / .count / .status（那是雷达原样的拐点），
+   要逐格路线用 Radar_ExpandLeg(段号, 缓冲, 容量)。
+
+   注意：C8 在这里是"上一页"，而 TIM7 中断里 C8 还是全局暂停键 —— 按下会顺带
+   悄悄翻一次 s_paused（test.h 第二节记过这条），测试模式下没有动作，无副作用。 */
+typedef struct {
+    GPIO_TypeDef *port;
+    uint16_t      pin;
+    uint8_t       prev;
+    uint8_t       cnt;
+    uint8_t       stable;
+} RadarTestKey;
+
+/* 消抖后的"按下沿"，逻辑同 menu.c 的 Key_Scan（15ms 一拍 + 连续 3 次同电平） */
+static uint8_t RadarTest_KeyEdge(RadarTestKey *k)
+{
+    uint8_t raw = (HAL_GPIO_ReadPin(k->port, k->pin) == GPIO_PIN_RESET) ? 1U : 0U;
+    uint8_t press = 0U;
+
+    if(raw == k->prev)
+    {
+        if(k->cnt < TEST_KEY_DEBOUNCE) k->cnt++;
+        if(k->cnt >= TEST_KEY_DEBOUNCE && k->stable != raw)
+        {
+            k->stable = raw;
+            if(raw == 1U) press = 1U;
+        }
+    }
+    else
+    {
+        k->prev = raw;
+        k->cnt = 0U;
+    }
+    return press;
+}
+
+/* 页0：四段概览 */
+static void RadarTest_ShowOverview(void)
+{
+    char buf[32];                 /* 最坏 "L4 24>24 s6 n24" 约 16 字符，留够余量给 -Wformat-overflow */
+    uint8_t i;
+
+    OLED_Clear();
+    for(i = 0U; i < (uint8_t)RADAR_LEG_COUNT; i++)
+    {
+        if(Radar_Path[i].status == RADAR_PATH_INVALID)
+            sprintf(buf, "L%u --", (unsigned)(i + 1U));
+        else
+            sprintf(buf, "L%u %u>%u s%u n%u", (unsigned)(i + 1U),
+                    (unsigned)Radar_Path[i].start, (unsigned)Radar_Path[i].goal,
+                    (unsigned)Radar_Path[i].status, (unsigned)Radar_Path[i].count);
+        OLED_ShowString(0, (uint8_t)(i * 16U), (uint8_t *)buf, 16, 1);
+    }
+    OLED_Refresh();
+}
+
+/* 页k(1..4)：第 k 段。雷达只回**拐点+终点**（直线段只回终点），这里展开成逐格编号显示 —— 
+   否则一条直线段只显示 1 个点，看着像丢数据（其实是协议设计如此，见说明书 §7/§9）。 */
+static void RadarTest_ShowLeg(uint8_t page)
+{
+    char buf[32];
+    uint8_t idx = (uint8_t)(page - 1U);
+    uint8_t cells[RADAR_PATH_MAX_POINTS];
+    uint8_t n;
+    uint8_t i;
+
+    OLED_Clear();
+    sprintf(buf, "L%u %u>%u s%u", (unsigned)page, (unsigned)Radar_Path[idx].start,
+            (unsigned)Radar_Path[idx].goal, (unsigned)Radar_Path[idx].status);
+    OLED_ShowString(0, 0, (uint8_t *)buf, 16, 1);
+
+    n = Radar_ExpandLeg(idx, cells, (uint8_t)sizeof(cells));
+
+    if(Radar_Path[idx].status != 0U)
+    {
+        sprintf(buf, "no path n=%u", (unsigned)Radar_Path[idx].count);
+        OLED_ShowString(0, 24, (uint8_t *)buf, 16, 1);
+    }
+    else if(n == 0U)
+    {
+        /* 理论上不该发生：要么起点=终点，要么折点不共行不共列 */
+        sprintf(buf, "raw %u expand FAIL", (unsigned)Radar_Path[idx].count);
+        OLED_ShowString(0, 16, (uint8_t *)buf, 8, 1);
+    }
+    else
+    {
+        sprintf(buf, "raw %u -> %u cells", (unsigned)Radar_Path[idx].count, (unsigned)n);
+        OLED_ShowString(0, 16, (uint8_t *)buf, 8, 1);
+
+        /* 逐格编号：每行 7 个（7×18=126 像素）；y=24/32/40/48 四行，够放 24 格 */
+        for(i = 0U; i < n && i < 28U; i++)
+        {
+            OLED_ShowNum((uint8_t)((i % 7U) * 18U), (uint8_t)(24U + (i / 7U) * 8U),
+                         (u32)cells[i], 2U, 8U, 1);
+        }
+    }
+
+    OLED_ShowString(0, 56, (uint8_t *)"C6> C8< A8:run", 8, 1);
+    OLED_Refresh();
+}
+
+/* 页0：障碍方格 5×5 图（方格扫描的直接结果，也就是路径规划的输入）。
+   "XX" = 该格有障碍；数字 = 空闲格。按说明书 §9 的摆法画：行4 在上、行0 在下，
+   和手册那张图方向一致（若现场 Y 轴方向相反，把 (4U - row) 改成 row 即可）。 */
+static void RadarTest_ShowObstacles(void)
+{
+    char buf[24];
+    uint8_t id;
+
+    OLED_Clear();
+    if(Radar_GetFailure() != 0U)
+        sprintf(buf, "obs n=%u f%u", (unsigned)Radar_GetObstacleCount(),
+                (unsigned)Radar_GetFailure());
+    else
+        sprintf(buf, "obs grid n=%u", (unsigned)Radar_GetObstacleCount());
+    OLED_ShowString(0, 0, (uint8_t *)buf, 16, 1);
+
+    for(id = 0U; id <= 24U; id++)
+    {
+        uint8_t x = (uint8_t)(4U + Radar_GridCol(id) * 20U);
+        uint8_t y = (uint8_t)(16U + (4U - Radar_GridRow(id)) * 8U);
+
+        if(Radar_GridIsObstacle(id))
+            OLED_ShowString(x, y, (uint8_t *)"XX", 8, 1);
+        else
+            OLED_ShowNum(x, y, (u32)id, 2U, 8U, 1);
+    }
+
+    OLED_ShowString(0, 56, (uint8_t *)"C6> C8< A8:run", 8, 1);
+    OLED_Refresh();
+}
+
+/* heading_q6（1/64°）→ 同时给出两种表示，方便和上位机那个数字直接对上：
+     dst_zero360 : "287.20"   0~360 表示
+     dst_signed  : "-72.80"   -180~180 表示（同一角度的另一种写法）
+   量化 1/64°=0.015625°，所以显示到 0.01° 只是方便看，别指望它比 0.015625° 更准。 */
+static void RadarTest_FormatHeadingPair(char *dst_zero360, char *dst_signed, uint16_t q6)
+{
+    unsigned centi = (unsigned)((((uint32_t)q6 * 100U) + 32U) / 64U);   /* 单位 0.01°，0~35999 */
+    int32_t  centi_s;
+
+    if(centi >= 36000U) centi -= 36000U;
+    sprintf(dst_zero360, "%u.%02u", centi / 100U, centi % 100U);
+
+    centi_s = (int32_t)centi;
+    if(centi_s >= 18000) centi_s -= 36000;                              /* 折到 -180~180 */
+    if(centi_s < 0)
+        sprintf(dst_signed, "-%ld.%02ld", (long)((-centi_s) / 100), (long)((-centi_s) % 100));
+    else
+        sprintf(dst_signed, "%ld.%02ld",  (long)(centi_s / 100),    (long)(centi_s % 100));
+}
+
+/* a-b 归一到 ±180°（单位还是 q6，±11520）
+   ⚠ 参数名不能用 a/b —— chassis.h 里有 `#define a 100` / `#define b 115`（单字母宏），
+     编译器会把参数名直接替换成数字。这里用 q6_a / q6_b 避开。 */
+static int16_t RadarTest_HeadingDiff(uint16_t q6_a, uint16_t q6_b)
+{
+    int32_t d = (int32_t)q6_a - (int32_t)q6_b;
+
+    if(d > 11520)  d -= 23040;
+    if(d < -11520) d += 23040;
+    return (int16_t)d;
+}
+
+/* 页1：位姿对照 —— 雷达自报的那份（= 上位机标定的）vs 本机 config 那份。
+   "扫出来的障碍格子位置/数量不对"十有八九就是这两份不一致：朝向差一点，整片坐标系就转了。
+   标题里 SAVED = 当前不覆盖雷达那份（LAUNCH_USE_SAVED_POSE=1）；SET = 本机覆盖它。 */
+static void RadarTest_ShowPose(void)
+{
+    char buf[32];
+    char rz[12], rs[12], cz[12], cs[12];
+    radar_client_pose_t rp, cp;
+    uint8_t has_r = Radar_GetRadarPose(&rp)  ? 1U : 0U;
+    uint8_t has_c = Radar_GetConfigPose(&cp) ? 1U : 0U;
+
+    OLED_Clear();
+    sprintf(buf, "pose z%u %s", (unsigned)Radar_GetZone(),
+            Radar_IsUsingSavedPose() ? "SAVED" : "SET");
+    OLED_ShowString(0, 0, (uint8_t *)buf, 16, 1);
+
+    if(has_r != 0U)
+    {
+        RadarTest_FormatHeadingPair(rz, rs, rp.heading_q6);
+        sprintf(buf, "radar z%u %d %d", (unsigned)rp.zone, (int)rp.x_mm, (int)rp.y_mm);
+        OLED_ShowString(0, 16, (uint8_t *)buf, 8, 1);
+        sprintf(buf, "      h%s %s", rz, rs);      /* 0~360 与 -180~180 两种写法 */
+        OLED_ShowString(0, 24, (uint8_t *)buf, 8, 1);
+    }
+    else
+    {
+        /* zone=0：雷达当前没有有效会话位姿。两种情况——
+           a) 上位机设过但**没保存**、雷达又断过电 → 会话位姿没了；
+           b) 压根没收到 HELLO（那任务会在连接步就失败，进度页第 4 行会是 no hello）。
+           两种情况都给出可操作提示（字体只有 ASCII，所以用英文）。 */
+        OLED_ShowString(0, 16, (uint8_t *)"radar -- no pose", 8, 1);
+        OLED_ShowString(0, 24, (uint8_t *)"save in PC tool", 8, 1);
+    }
+
+    if(has_c != 0U)
+    {
+        RadarTest_FormatHeadingPair(cz, cs, cp.heading_q6);
+        sprintf(buf, "cfg   z%u %d %d", (unsigned)cp.zone, (int)cp.x_mm, (int)cp.y_mm);
+        OLED_ShowString(0, 32, (uint8_t *)buf, 8, 1);
+        sprintf(buf, "      h%s %s", cz, cs);
+        OLED_ShowString(0, 40, (uint8_t *)buf, 8, 1);
+    }
+
+    if(has_r != 0U && has_c != 0U)
+    {
+        int16_t dq6 = RadarTest_HeadingDiff(rp.heading_q6, cp.heading_q6);
+        int32_t d10 = ((int32_t)dq6 * 10 + ((dq6 < 0) ? -32 : 32)) / 64;   /* 四舍五入到 0.1° */
+
+        /* 正负号必须自己管：|diff| < 1° 时 d10/10 截断成 0，直接 %ld 会把符号丢掉
+           （现场按 0.1° 量级调角度时，把 -0.3 显示成 0.3 会把人带偏）。 */
+        if(d10 < 0)
+            sprintf(buf, "diff  h-%ld.%ld", (long)((-d10) / 10), (long)((-d10) % 10));
+        else
+            sprintf(buf, "diff  h%ld.%ld",  (long)(d10 / 10),    (long)(d10 % 10));
+        OLED_ShowString(0, 48, (uint8_t *)buf, 8, 1);
+    }
+
+    OLED_ShowString(0, 56, (uint8_t *)"C6> C8< A8:run", 8, 1);
+    OLED_Refresh();
+}
+
+/* 页0 障碍方格 / 页1 位姿对照 / 页2 四段概览 / 页3..6 第 1..4 段逐格路线 */
+#define RADAR_TEST_PAGES  (3U + (uint8_t)RADAR_LEG_COUNT)
+
+static void RadarTest_ShowPage(uint8_t page)
+{
+    if(page == 0U)      RadarTest_ShowObstacles();
+    else if(page == 1U) RadarTest_ShowPose();
+    else if(page == 2U) RadarTest_ShowOverview();
+    else                RadarTest_ShowLeg((uint8_t)(page - 2U));
+}
+
+static void Test_Radar(void)
+{
+    RadarTestKey key_next = { GPIOC, GPIO_PIN_6, 0U, 0U, 0U };   /* C6 下一页 */
+    RadarTestKey key_prev = { GPIOC, GPIO_PIN_8, 0U, 0U, 0U };   /* C8 上一页 */
+    RadarTestKey key_run  = { GPIOA, GPIO_PIN_8, 0U, 0U, 0U };   /* A8 重跑 */
+
+    for(;;)
+    {
+        uint8_t page = 0U;
+        uint8_t rerun = 0U;
+
+        Radar_Init();               /* 每次重跑都重新初始化（Launch_IsFinished 是粘滞的） */
+        (void)Radar_RunOnce();      /* 进度页 + 四段摘要页由它自己显示（内部管 Dbg 挂起） */
+
+        Dbg_Suspend();              /* 结果页归本函数，直到下次重跑 */
+        do
+        {
+            RadarTest_ShowPage(page);   /* 页0 障碍方格 → 页1 概览 → 页2..5 四段逐格 */
+
+            for(;;)
+            {
+                if(RadarTest_KeyEdge(&key_run))  { rerun = 1U; break; }
+                if(RadarTest_KeyEdge(&key_next))
+                {
+                    page = (uint8_t)((page + 1U) % RADAR_TEST_PAGES);
+                    break;
+                }
+                if(RadarTest_KeyEdge(&key_prev))
+                {
+                    page = (page == 0U) ? (uint8_t)(RADAR_TEST_PAGES - 1U) : (uint8_t)(page - 1U);
+                    break;
+                }
+                HAL_Delay(TEST_KEY_SCAN_MS);   /* 挂起期间这句不会再刷屏 */
+            }
+        } while(rerun == 0U);
+
+        Dbg_Resume();               /* 交还屏幕，然后重跑 */
+    }
+}
+
 /* ========================== 分发入口 ==========================
    main() 在 AGV_Init() 之前调它。测试模式下不返回。 */
 void Test_Switch(void)
@@ -838,6 +1143,7 @@ void Test_Switch(void)
         case 7:  Test_Camera();      break;  //定时器自带oled显示接收数据 ，然后每隔5秒轮流发送所有模式指令 比如任务0x02的可以就123，0x05就用颜色数字2
         case 8:  Test_OLED();        break;  //屏幕自检：甲段(不启TIM7)黑白闪+标记字，乙段(启TIM7)看调试画面(不返回)
         case 9:  Test_Motor();       break;  //臂测试：高度/半径步进电机(0<->30mm往返)或转盘舵机(A/B/C槽)，靠看+尺子验方向和比例(不返回)
+        case 10: Test_Radar();       break;  //雷达：一次方格扫描+四段路径规划，结果分页显示；C6/C8 翻页，A8 重跑(不返回)
         default: break;                      /* 号还没写实现的：初始化完就停住 */
     }
 

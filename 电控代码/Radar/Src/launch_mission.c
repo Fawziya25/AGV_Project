@@ -264,6 +264,12 @@ void Launch_Poll(void)
         break;
 
     case STEP_SET_POSE:
+#if LAUNCH_USE_SAVED_POSE
+        /* 用雷达 Flash 里那份位姿（上位机标定的）：一发 SET_POSE 就把它覆盖成我们自己的值，
+           现场标定过的朝向/坐标就白标了 —— 因此这里直接跳到方格扫描。 */
+        step = STEP_GRID_SCAN;
+        break;
+#else
         if (!RadarClient_IsBusy()) {
             radar_client_pose_t pose;
             memset(&pose, 0, sizeof(pose));
@@ -288,6 +294,7 @@ void Launch_Poll(void)
             step = STEP_WAIT_POSE;
         }
         break;
+#endif  /* LAUNCH_USE_SAVED_POSE */
 
     case STEP_WAIT_POSE:
         /* 成功 ACK（保存版还需 PERSISTED+HELLO）后客户端会清 busy；失败走 error 回调。 */
