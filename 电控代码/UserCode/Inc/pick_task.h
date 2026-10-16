@@ -16,9 +16,10 @@
 
 /* ========================== 辅助宏定义 ========================== */
 
-/* 视觉交互统一由 camera.h 的请求式 API 承担
-   (Cam_RequestDisc / Cam_RequestRing / Cam_RequestBoxColor),不再用宏。
-   请求超时统一用 camera.h 的 CAM_REQ_TMO_MS。 */
+/* 视觉交互统一由 camera.h 的 Cam_SwitchTo(mode) 承担 —— 一条命令一个模式号，
+   没有出参，结果读全局量 dx/dy、box_color[]、cam_flag。不再用宏。
+   mode 直接写命令码的八进制字面量：01 任务码 / 02 最近物块 / 03 三框颜色 /
+   04 圆环 / 05 指定颜色。 */
 
 /** 移动到普通圆环位置 */
 #define MOVE_TO_RING(ring) \
@@ -76,12 +77,33 @@
 /* 槽位约定(slot)：0=A 槽, 1=B 槽, 2=C 槽，与 Place_Color[]/Pick_Color[] 下标一致
    圆环约定(ring)：1/2/3                                             */
 
+/* 原料区取料前的视觉对正：摆 POS_RAW_B → 开爪 → 0x02 拿偏差 → AGV_Correct(5000) → 收爪。
+   拿不到偏差就不修正（免得用旧 dx/dy 把车带偏）。由 task.c 的 case Pick1 在
+   Pick_RAW / Pick_RAW_PLUS 之前调用一次，那两个函数自己不再做这一步。 */
+void Pick_Correct(void);
+
+/* 原料区取料（当前路线）：摆 POS_RAW_B、开爪，反复发 0x02 直到相机报回来的颜色号
+   等于任务码当前要抓的那一色（flag 即颜色号 1~6），才下手抓到车上对应槽。
+   严格按任务码顺序 i=0/1/2，不匹配就一直等（无超时）。 */
 void Pick_RAW(void);
-/* 同 Pick_RAW，但每抓一块前都回观察位重问一次 0x03，按相机重新给的 flag=1 下手，
-   不推算转盘走格。当前未调用，切换见 pick_task.c 里它的注释。 */
+
+/* 原料区取料（备用路线，当前未调用）：改动前的老做法 —— 开局读一次三框颜色(0x03)，
+   按 (初始格 + 已抓块数) % 3 推算转盘走格。切换见 pick_task.c 里它的注释。 */
 void Pick_RAW_PLUS(void);
+
+/* 粗加工区放置前的视觉对正：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct(30000) → 收爪。
+   拿不到偏差就不修正（免得用旧 dx/dy 把车带偏）。由 task.c 的 case Place1 在
+   Place_ROUGH 之前调用一次，Place_ROUGH 自己不再做这一步。 */
+void Place_Correct(void);
+
+/* 粗加工区放置（不含视觉修正，那一步在 Place_Correct 里）：把车上三个槽
+   依次放到二维码给的圆环上。 */
 void Place_ROUGH(void);
 void Pick_ROUGH(void);
 void Place_TEMP(void);
+/* 暂存区放置前的视觉对正【第二轮】：摆 POS_OBSERVE_TEMP → 开爪 → 0x05 指定颜色 → AGV_Correct(5000) → 收爪。
+   第一轮别调它 —— 第一轮的观察位和粗加工区同一处，复用 Place_Correct()。
+   task.c 的 case Place2 按 RerunFlag 二选一。 */
+void Place_TEMP_Correct(void);
 
 #endif /* __PICK_TASK_H */

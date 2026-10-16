@@ -1,5 +1,5 @@
 #include "QRcode.h"
-#include "camera.h"             /* Cam_RequestTaskCode / CAM_REQ_TMO_MS */
+#include "camera.h"             /* Cam_SwitchTo / CAM_CMD_TASKCODE */
 #include "stm32f4xx_hal_uart.h"
 #include <stdint.h>
 
@@ -117,6 +117,5 @@ void QRcode_Task(void)
     OLED_ShowString(0, 32, (uint8_t *)&QRcode_Buffer[8], 32, 1);
     OLED_Refresh();
 
-    Cam_RequestTaskCode(Pick_Color1[0], Pick_Color1[1], Pick_Color1[2],
-                           CAM_REQ_TMO_MS);
+    Cam_SwitchTo(01);   /* 0x01 任务码：三色不用传，Cam_SwitchTo 自己从 Pick_Color1 取 */
 }

@@ -9,6 +9,7 @@
 #include "camera.h"
 #include "usart.h"
 #include "oled.h"
+#include "QRcode.h"      /* Pick_Color1 / Place_Color1 —— Cam_SwitchTo 的 0x01 / 0x05 要自己取参数 */
 #include "test.h"        /* Dbg_ShowScreen —— 整屏显示(原 Cam_OLED_Show 已并入 test.c) */
 #include "stm32f4xx_hal.h"
 
@@ -40,9 +41,10 @@ volatile uint8_t cam_start = 0;
 
 /* 完成事件的锁存：flag!=0 的那一帧必须单独记下来，
    否则会被紧随其后的 flag=0 帧覆盖，等待循环就永远等不到"干完了"。
-   只给本文件的等待函数用，不对外暴露。 */
+   只给本文件的等待函数用，不对外暴露。
+   ⚠ 只锁"哪条命令完成了"，不锁它的 flag 值 —— 完成帧的 flag 调用方返回后
+   直接读全局 cam_flag 就够（Cam_SwitchTo 是在收到完成帧那一拍当场 return 的）。*/
 static volatile uint8_t s_doneCmd  = 0xFF;   /* 最近一个 flag!=0 的命令码 */
-static volatile uint8_t s_doneFlag = 0;      /* 它的 flag 值（0x04 时即圆环编号） */
 
 /* 握手锁存：最近一帧的命令码，**不管 flag 是几都记**。
    相机在任何模式下都会持续往回发数据，所以"收到一帧"完全不能说明它收到了我们的
@@ -179,10 +181,9 @@ static void Cam_DecodeFrame(const uint8_t *f)
             break;          /* 只更新 cam_mode / cam_flag */
     }
 
-    if(flag != 0U)      /* 这一轮干完了，锁存 */
+    if(flag != 0U)      /* 这一轮干完了，锁存命令码给等待循环 */
     {
-        s_doneCmd  = cmd;
-        s_doneFlag = flag;
+        s_doneCmd = cmd;
     }
 }
 
@@ -259,7 +260,6 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
  * @param cmd        命令码，0x01 ~ 0x05 这些请求式命令都走这里
  * @param payload    参数字节首地址：0x01 传三色 c1c2c3、0x05 传 color、其余传 NULL
  * @param plen       参数字节数 0~3
- * @param settle_ms  第二段(等 flag!=0)的超时
  * @retval 1 两段都完成；0 任一段超时
  *
  * @note  **为什么分两段**：相机在任何模式下都会持续往回发数据，所以"收到一帧"本身
@@ -269,14 +269,15 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
  *
  *        第一段：等 s_ackCmd == cmd；每 CAM_RESEND_MS 补发一次(命令幂等，补发无害)，
  *                CAM_ACK_TMO_MS(10s) 到点还没等到 → 返回 0(命令没送达)。
- *        第二段：等 s_doneCmd == cmd(即回了一帧 flag!=0)；settle_ms 到点 → 返回 0。
+ *        第二段：等 s_doneCmd == cmd(即回了一帧 flag!=0)；CAM_REQ_TMO_MS(20s) 到点 → 返回 0。
  *                **不补发** —— 相机已在本模式下持续回帧，重复下发可能让它重开一轮识别。
+ *                两句超时都不从外面传：调用方(Cam_SwitchTo)只管挑模式，耐心是本模块的事。
  *
  *        两段锁存都在发命令之前一起清；所以第一段期间若相机就已经回了 flag!=0，
  *        第二段进来立刻命中返回，不会把那次完成事件漏掉。
  *        每拍调 Cam_Service() 自愈接收链。
  */
-static uint8_t Cam_WaitSettle(uint8_t cmd, const uint8_t *payload, uint8_t plen, uint32_t settle_ms)
+static uint8_t Cam_WaitSettle(uint8_t cmd, const uint8_t *payload, uint8_t plen)
 {
     uint32_t t0, lastSend;
 
@@ -303,7 +304,7 @@ static uint8_t Cam_WaitSettle(uint8_t cmd, const uint8_t *payload, uint8_t plen,
     if(s_ackCmd != cmd) return 0;       /* 第一段超时：命令没送达 */
     /* ---- 第二段：等这同一条命令回 flag!=0，即相机把活干完了 ---- */
     t0 = HAL_GetTick();
-    while((HAL_GetTick() - t0) < settle_ms)
+    while((HAL_GetTick() - t0) < CAM_REQ_TMO_MS)
     {
         Cam_Service();
         if(s_doneCmd == cmd) return 1;
@@ -328,8 +329,8 @@ void Cam_SendIdle(void)
  *        （见 camera.h 顶部"相机在任何模式下都会持续回数据"），所以这里不需要等 ——
  *        发完结果自己去看全局 cam_mode / cam_flag / dx / dy / box_color[]。
  *
- *        和 Cam_RequestXxx() 的区别就在这：那些是"发一条、等它干完"的阻塞版
- *        （第一段等回帧固定 10s + 第二段 settle_ms），相机没接时会一条卡 20 秒，
+ *        和 Cam_SwitchTo() 的区别就在这：那个是"发一条、等它干完"的阻塞版
+ *        （第一段等回帧固定 10s + 第二段 CAM_REQ_TMO_MS 20s），相机没接时会一条卡 30 秒，
  *        用来做"每 N 秒换一条命令"的轮询是不行的。这个是几十微秒。
  *
  *        注意这不代表"发出去就一定被采用"：相机不认这条命令的话，它会继续回
@@ -340,59 +341,49 @@ void Cam_SendCommand(uint8_t cmd, const uint8_t *payload, uint8_t plen)
     Cam_SendCmdPayload(cmd, payload, plen);
 }
 
-uint8_t Cam_RequestTaskCode(uint8_t c1, uint8_t c2, uint8_t c3, uint32_t settle_ms)
+/**
+ * @brief 统一切换相机模式：发一条命令 + 阻塞等它干完。
+ *        原来那五个 Cam_RequestXxx()（TaskCode/Disc/BoxColor/Ring/Color）已经删掉，
+ *        出参一律没有 —— 结果全在全局量 dx/dy/box_color[]/cam_flag 里，返回后直接读。
+ * @param mode 命令码 0x00~0x05，调用处直接写八进制字面量 01/02/03/04/05（写 2 也行，
+ *             是同一个值；但 08/09 不是合法字面量）。带参数的两条自己取参数，调用方不用管：
+ *             0x01 任务码   → 直接用本轮扫出来的 Pick_Color1[0..2]
+ *             0x05 指定颜色 → 按任务码算出"第一轮放进 2 号环的那一块的颜色"
+ * @return 1 = 命令被采用且相机回了 flag!=0（全局量已刷新，可读）；
+ *         0 = 超时（第一段 10s / 第二段 20s），此时全局量还是旧值；
+ *             0x05 另有一种 0：任务码里没有哪一槽进过 2 号环，没颜色可发，一帧都不发。
+ * @note  为什么调用方返回后能直接读 cam_flag 拿 flag（0x02 的颜色号 / 0x04 的圆环编号）：
+ *        Cam_WaitSettle 是在"收到完成帧"的那一拍当场 return 的，中间没有再收帧，
+ *        所以返回点上 cam_flag 就是那条完成帧的 flag。读它之前别插会跑 Cam_Service()
+ *        的动作（HAL_Delay / 再接一次 Cam_SwitchTo），否则可能被新来的 flag=0 帧冲掉。
+ */
+uint8_t Cam_SwitchTo(uint8_t mode)
 {
-    const uint8_t tc[3] = { c1, c2, c3 };
-
-    /* 相机收到任务码后回 AA 01 flag BB，flag=1 表示已收。没有出参可读，
-       返回值就是"相机认下了没有"，调用方据此决定要不要往下走。 */
-    return Cam_WaitSettle(CAM_CMD_TASKCODE, tc, 3, settle_ms);
-}
-
-uint8_t Cam_RequestDisc(int16_t *px, int16_t *py, uint32_t settle_ms)
-{
-    if(!Cam_WaitSettle(CAM_CMD_DISC, NULL, 0, settle_ms))
+    uint8_t payload[3];
+    uint8_t plen = 0;
+    switch(mode)
     {
-        return 0;
+        case CAM_CMD_TASKCODE:          /* 0x01：任务码三色，直接用扫出来的那一组 */
+            payload[0] = Pick_Color1[0];
+            payload[1] = Pick_Color1[1];
+            payload[2] = Pick_Color1[2];
+            plen = 3;
+            break;
+        case CAM_CMD_COLOR:             /* 0x05：第一轮放在 2 号环上的那一块的颜色 */
+        {
+            uint8_t c = 0;
+            if      (Place_Color1[0] == 2U) c = Pick_Color1[0];
+            else if (Place_Color1[1] == 2U) c = Pick_Color1[1];
+            else c = Pick_Color1[2];
+            payload[0] = c;
+            plen = 1;
+            break;
+        }
+        default:                        /* 0x00 / 0x02 / 0x03 / 0x04 都不带参数 */
+            plen = 0;
+            break;
     }
-    if(px) *px = dx;
-    if(py) *py = dy;
-    return 1;
-}
-
-uint8_t Cam_RequestBoxColor(uint8_t *c1, uint8_t *c2, uint8_t *c3, uint32_t settle_ms)
-{
-    if(!Cam_WaitSettle(CAM_CMD_BOXCOLOR, NULL, 0, settle_ms))
-    {
-        return 0;
-    }
-    if(c1) *c1 = box_color[0];
-    if(c2) *c2 = box_color[1];
-    if(c3) *c3 = box_color[2];
-    return 1;
-}
-
-uint8_t Cam_RequestRing(int16_t *px, int16_t *py, uint8_t *ring, uint32_t settle_ms)
-{
-    if(!Cam_WaitSettle(CAM_CMD_RING, NULL, 0, settle_ms))
-    {
-        return 0;
-    }
-    if(px)   *px   = dx;
-    if(py)   *py   = dy;
-    if(ring) *ring = s_doneFlag;    /* 0x04 的 flag 就是圆环编号 */
-    return 1;
-}
-
-uint8_t Cam_RequestColor(uint8_t color, int16_t *px, int16_t *py, uint32_t settle_ms)
-{
-    if(!Cam_WaitSettle(CAM_CMD_COLOR, &color, 1, settle_ms))
-    {
-        return 0;
-    }
-    if(px) *px = dx;
-    if(py) *py = dy;
-    return 1;
+    return Cam_WaitSettle(mode, payload, plen);
 }
 
 /* ========================== 初始化 / 维护 ========================== */

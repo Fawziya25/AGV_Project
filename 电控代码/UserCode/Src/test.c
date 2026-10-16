@@ -32,7 +32,7 @@
 #include "task.h"                   /* 正式流程状态机 + AGV_Position_* */
 #include "pick_task.h"              /* Pick_RAW / Place_ROUGH / Place_TEMP */
 #include "pick.h"                   /* Pick_JumpTo / POS_* / Pick_Gripper_* */
-#include "camera.h"                 /* cam_mode/cam_flag/dx/dy + Cam_Init/Cam_RequestDisc */
+#include "camera.h"                 /* cam_mode/cam_flag/dx/dy + Cam_Init/Cam_SwitchTo */
 #include "positionPIDcontroller.h"  /* AGV_Correct / AGV_Position_Stop */
 #include "QRcode.h"                 /* Pick_Color1[3] 等 12 位任务码 */
 #include "oled.h"                   /* OLED_Clear / OLED_ShowString / OLED_Refresh */
@@ -476,29 +476,27 @@ static void Test_AGV(void)
 }
 
 /* ========================== 2 视觉修正测试 ==========================
-   只测「问圆盘中心 → 闭环对齐」这一环，不取放物料。
-   和正式流程一样：夹爪先张开、臂摆到观察位，免得挡着相机；然后请 0x02
+   只测「问最近物块 → 闭环对齐」这一环，不取放物料。
+   和正式流程一样：夹爪先张开、臂摆到取料位，免得挡着相机；然后请 0x02
    拿偏差（落到全局 dx/dy），交给 AGV_Correct() 闭环。
-   拿不到偏差就不修正 —— 不然会拿上一帧的旧 dx/dy 把车带偏。 */
+   拿不到偏差就不修正 —— 不然会拿上一帧的旧 dx/dy 把车带偏。
+
+   ⚠ 0x02 的语义 2026-10-16 改过：现在报的是"最近物块"的位置偏差与边沿判断，
+     它的 flag 就是那个物块的颜色号(1~6)，不再是"圆盘中心、flag 只有 0/1"。
+     正式流程那条路的位姿是 POS_RAW_B（见 pick_task.c 的 Pick_Correct），
+     本测试下面用的是 POS_OBSERVE_RAW —— 想跟正式流程完全一致就改成它。 */
 static void Test_Correct(void)
 {
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     HWT101_Init(&huart5); /* 初始化HWT101 */
 
-    // Pick_JumpTo POS_OBSERVE_RAW;  /* 臂摆到圆盘观察位 */
-    // Pick_Gripper_Observe();          /* 夹爪张开，别挡住观察位 */
+    Pick_JumpTo POS_OBSERVE_RAW;  /* 臂摆到圆盘观察位 */
+    Pick_Gripper_Observe();          /* 夹爪张开，别挡住观察位 */
 
-    // if(Cam_RequestDisc(NULL, NULL, CAM_REQ_TMO_MS))
-    // {
-    //     AGV_Correct(20000);           /* 闭环到对准或 5s 超时，退出时自动停车 */
-    // }
-    // else
-    // {
-    //     OLED_Clear();
-    //     OLED_ShowString(0, 0, (uint8_t *)"vision timeout", 16, 1);
-    //     OLED_Refresh();
-    // }
+    // if(Cam_SwitchTo(02))
+      AGV_Correct(20000);           /* 闭环到对准或 5s 超时，退出时自动停车 */
+ 
     Place_ROUGH();
     HAL_Delay(2000);
 }
@@ -606,12 +604,13 @@ static void Test_Func(void)
 
      C:xx   回帧的命令码 —— **这是本测试的主要判据**。每 5 秒换一条发，
             正常情况下它应该跟着变；一直停在某个值不动 = 相机不认新命令。
-     F:x    flag —— 0x02 时 1=识别到圆盘、0=没识别到；0x04 时就是圆环号(1/2/3)；
+     F:x    flag —— 0x02 时是最近物块的颜色号(1~6)、0=没识别到或还没静止；
+            0x04 时就是圆环号(1/2/3)；
             0x01/0x03 时 1=干完了。
      x: y:  dx/dy 偏差(px) —— 只有 0x02 / 0x04 / 0x05 的帧会更新，别的命令时是旧值。
 
-   **为什么不用 Cam_RequestXxx()**：那套是阻塞的，第一段等相机回本命令固定 10s、
-   第二段 settle_ms 又 10s，相机没接时一条命令卡 20 秒，"每 5 秒换一条"根本做不到，
+   **为什么不用 Cam_SwitchTo()**：那个是阻塞的，第一段等相机回本命令固定 10s、
+   第二段（CAM_REQ_TMO_MS）又 20s，相机没接时一条命令卡 30 秒，"每 5 秒换一条"根本做不到，
    而且卡住期间 cam_mode 不刷新、屏看起来像死机。这里用 Cam_SendCommand()
    只发不等（几十微秒），相机会自己持续回发当前模式的数据。
 
