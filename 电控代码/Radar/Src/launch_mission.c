@@ -71,12 +71,15 @@ static bool path_ready;
 static radar_client_path_result_t path_copy;
 
 /* ---- 路线与逐段结果 ----
- * 路线是一串端点：{起点, 第1段终点, 第2段终点, ...}，段数 = 节点数 - 1。
+ * 路线改成**逐段显式指定**：`leg_starts[i] -> leg_goals[i]`，段数 = leg_total。
+ * 这样既能表达"首尾相连"的普通路线（Launch_SetRoute/默认配置），也能表达
+ * **不连的段**（例如"22→14 之后，另外再规划一段 22→起点"）——用户 2026-10-14 要求的就是这种。
  * 默认来自编译期配置 LAUNCH_START_GRID / LAUNCH_ROUTE_GOALS，
- * 可在规划前用 Launch_SetStart()/Launch_SetRoute() 覆盖。 */
+ * 可在规划前用 Launch_SetRoute() / Launch_SetLegs() / Launch_SetStart() 覆盖。 */
 static const uint8_t default_goals[] = LAUNCH_ROUTE_GOALS;
-static uint8_t route_nodes[LAUNCH_MAX_LEGS + 1U];
-static uint8_t route_length;                  /* 节点数 = 段数 + 1 */
+static uint8_t leg_starts[LAUNCH_MAX_LEGS];
+static uint8_t leg_goals[LAUNCH_MAX_LEGS];
+static uint8_t leg_total;                     /* 段数 */
 static uint8_t leg_index;                     /* 下一段待规划的序号 */
 static uint8_t leg_done;                      /* 已完成规划的段数 */
 static uint8_t leg_failure_mask;              /* bit i = 第 i 段 status != 0 */
@@ -178,21 +181,25 @@ static void finish(void)
 
 /* ======================== 初始化 ======================== */
 
-/* 用编译期配置填充路线；返回 false 表示配置越界（不发起任何规划）。 */
+/* 用编译期配置填充路线（链式：起点 -> 第1段终点 -> 第2段终点 …）；
+   返回 false 表示配置越界（不发起任何规划）。 */
 static bool set_route_defaults(void)
 {
     uint8_t index;
     uint8_t goals = (uint8_t)(sizeof(default_goals) / sizeof(default_goals[0]));
+    uint8_t prev = (uint8_t)LAUNCH_START_GRID;
 
     if (goals > LAUNCH_MAX_LEGS) goals = LAUNCH_MAX_LEGS;
     if (goals == 0U) return false;
+    if (prev > 24U) return false;
 
-    route_nodes[0] = (uint8_t)LAUNCH_START_GRID;
     for (index = 0U; index < goals; ++index) {
         if (default_goals[index] > 24U) return false;
-        route_nodes[index + 1U] = default_goals[index];
+        leg_starts[index] = prev;
+        leg_goals[index] = default_goals[index];
+        prev = default_goals[index];
     }
-    route_length = (uint8_t)(goals + 1U);
+    leg_total = goals;
     return true;
 }
 
@@ -231,7 +238,7 @@ void Launch_Init(void)
 
     LAUNCH_LOG("LAUNCH init: zone=%u pose=(%d,%d,%u/64deg) legs=%u\r\n",
                pose_zone, pose_x_mm, pose_y_mm,
-               pose_heading_q6, (unsigned)(route_length - 1U));
+               pose_heading_q6, (unsigned)leg_total);
 }
 
 /* ======================== 主状态机 ======================== */
@@ -363,7 +370,7 @@ void Launch_Poll(void)
 
     case STEP_PLAN_PATH:
         if (!RadarClient_IsBusy()) {
-            if ((uint8_t)(leg_index + 1U) >= route_length) {
+            if (leg_index >= leg_total) {
                 /* 所有路段都规划完毕，进入收尾。 */
                 step = STEP_STOP;
                 stop_submitted = false;
@@ -371,9 +378,9 @@ void Launch_Poll(void)
                 break;
             }
             LAUNCH_LOG("LAUNCH leg %u: %u -> %u\r\n", (unsigned)(leg_index + 1U),
-                       route_nodes[leg_index], route_nodes[leg_index + 1U]);
-            result = RadarClient_RequestPlanPath(route_nodes[leg_index],
-                                                 route_nodes[leg_index + 1U]);
+                       leg_starts[leg_index], leg_goals[leg_index]);
+            result = RadarClient_RequestPlanPath(leg_starts[leg_index],
+                                                 leg_goals[leg_index]);
             LAUNCH_PRINT_REQUEST("plan_path", result);
             if (result != RADAR_CLIENT_REQUEST_ACCEPTED) {
                 enter_stop(LAUNCH_FAIL_PATH, "plan_path rejected");
@@ -463,7 +470,7 @@ bool Launch_SetStart(uint8_t start_grid)
 {
     if (start_grid > 24U) return false;
     if (step >= STEP_PLAN_PATH) return false;
-    route_nodes[0] = start_grid;
+    leg_starts[0] = start_grid;   /* 只改第 1 段起点 */
     return true;
 }
 
@@ -478,10 +485,35 @@ bool Launch_SetRoute(const uint8_t *nodes, uint8_t node_count)
     for (index = 0U; index < node_count; ++index) {
         if (nodes[index] > 24U) return false;
     }
-    for (index = 0U; index < node_count; ++index) {
-        route_nodes[index] = nodes[index];
+    for (index = 0U; index + 1U < node_count; ++index) {
+        leg_starts[index] = nodes[index];
+        leg_goals[index] = nodes[index + 1U];
     }
-    route_length = node_count;
+    leg_total = (uint8_t)(node_count - 1U);
+    return true;
+}
+
+/*
+ * 逐段显式指定：第 i 段 = starts[i] -> goals[i]，共 leg_count 段（1 ~ LAUNCH_MAX_LEGS）。
+ * **段与段之间不必首尾相连** —— 用于"22→14 之后再另外规划一段 22→起点"这类需求
+ * （用户 2026-10-14 的第 6 段就是这种：第 5 段结束在 14，第 6 段却从 22 出发）。
+ * 一旦进入 PLAN_PATH 阶段（请求已提交或已完成）就不再接受修改，返回 false。
+ */
+bool Launch_SetLegs(const uint8_t *starts, const uint8_t *goals, uint8_t leg_count)
+{
+    uint8_t index;
+
+    if (starts == NULL || goals == NULL || leg_count == 0U) return false;
+    if (leg_count > LAUNCH_MAX_LEGS) return false;
+    if (step >= STEP_PLAN_PATH) return false;
+    for (index = 0U; index < leg_count; ++index) {
+        if (starts[index] > 24U || goals[index] > 24U) return false;
+    }
+    for (index = 0U; index < leg_count; ++index) {
+        leg_starts[index] = starts[index];
+        leg_goals[index] = goals[index];
+    }
+    leg_total = leg_count;
     return true;
 }
 
@@ -492,15 +524,16 @@ bool Launch_SetPath(uint8_t start, uint8_t goal)
     return Launch_SetRoute(nodes, 2U);
 }
 
-uint8_t Launch_GetRouteLength(void)
+uint8_t Launch_GetLegTotal(void)
 {
-    return route_length;
+    return leg_total;
 }
 
-bool Launch_GetRouteNode(uint8_t index, uint8_t *grid_id)
+bool Launch_GetLegEndpoints(uint8_t leg, uint8_t *start, uint8_t *goal)
 {
-    if (grid_id == NULL || index >= route_length) return false;
-    *grid_id = route_nodes[index];
+    if (start == NULL || goal == NULL || leg >= leg_total) return false;
+    *start = leg_starts[leg];
+    *goal = leg_goals[leg];
     return true;
 }
 

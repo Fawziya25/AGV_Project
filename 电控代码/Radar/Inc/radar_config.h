@@ -1,4 +1,4 @@
-#ifndef __RADAR_CONFIG_H
+﻿#ifndef __RADAR_CONFIG_H
 #define __RADAR_CONFIG_H
 
 /*
@@ -29,6 +29,10 @@
 
 /* ---- 上位机"朝向偏移" → 协议 heading 的关系（2026-10-14）----
  *
+ * ⚠⚠ 2026-10-14 更新：**位姿已在上位机里设置好并写入雷达 Flash**，
+ *      本程序 `LAUNCH_USE_SAVED_POSE = 1`，下面这一整套值**不再下发**，
+ *      只作"万一以后要改回程序设位姿"时的参考。**别指望改这里能影响扫描结果。**
+ *
  * 用户结论：**雷达位姿 = 180° + 上位机里的朝向偏移**。
  * 用现场那两组值验一遍：
  *      区1: 180 + 107.2  = 287.2°  → heading_q6 = 18381
@@ -44,43 +48,64 @@
 #define RADAR_ZONE1_OFFSET_DEG     107.2f
 #define RADAR_ZONE2_OFFSET_DEG     (-72.8f)
 
-/* ---- 启停区 1：雷达位姿 + 出发点方格 ---- */
+/* ---- 启停区 1：雷达位姿（**参考值，当前不下发**，见下方 LAUNCH_USE_SAVED_POSE）+ 出发点方格 ---- */
 
-#define RADAR_ZONE1_POSE_X_MM          330     /* 待填：雷达自身在场地中的 X（mm），两区都 -200~500 */
-#define RADAR_ZONE1_POSE_Y_MM          2200    /* 待填：区域 1 的 Y 必须 1900~2600 */
+#define RADAR_ZONE1_POSE_X_MM          330     /* 参考值（不下发）：本位姿以上位机写入雷达 Flash 的为准 */
+#define RADAR_ZONE1_POSE_Y_MM          2200    /* 参考值（不下发） */
 #define RADAR_ZONE1_POSE_HEADING_DEG   (RADAR_HEADING_BASE_DEG + RADAR_ZONE1_OFFSET_DEG)  /* = 287.2f */
 #define RADAR_ZONE1_START_GRID         4U      /* 待填：车停在启停区1 时所在的方格 0~24 */
 
-/* ---- 启停区 2：雷达位姿 + 出发点方格 ---- */
+/* ---- 启停区 2：雷达位姿（**参考值，当前不下发**）+ 出发点方格 ---- */
 
-#define RADAR_ZONE2_POSE_X_MM          330     /* 待填：两区都 -200~500 */
-#define RADAR_ZONE2_POSE_Y_MM          200     /* 待填：区域 2 的 Y 必须 -200~500 */
+#define RADAR_ZONE2_POSE_X_MM          330     /* 参考值（不下发） */
+#define RADAR_ZONE2_POSE_Y_MM          200     /* 参考值（不下发） */
 #define RADAR_ZONE2_POSE_HEADING_DEG   (RADAR_HEADING_BASE_DEG + RADAR_ZONE2_OFFSET_DEG)  /* = 107.2f */
 #define RADAR_ZONE2_START_GRID         0U      /* 待填：车停在启停区2 时所在的方格 0~24 */
 
-/* ---- 四段路线：起点 -> 14 -> 10 -> 22 -> 14 ---- */
+/* ---- 路线（去程）：起点 → 2 → 14 → 10 → 22 → 14，之后再加一段"回程"回启停区 ----
+ * 这里只列**去程**各段的终点；第 6 段（回程）的终点是"起点格"本身，由
+ * radar_task.c 的 Radar_ComposeRoute() 组路线时自动补上（见下面的 RADAR_RETURN_TO_START）。
+ * 起点 = 出发点方格，跟着启停区走（区2 = 0、区1 = 4，见上面 RADAR_ZONEx_START_GRID）。 */
+#define LAUNCH_ROUTE_GOALS        { 2U, 14U, 10U, 22U, 14U }
 
-#define LAUNCH_ROUTE_GOALS        { 14U, 10U, 22U, 14U }
+/* 1 = 去程走完后再规划第 6 段：**从 22（RADAR_RETURN_FROM_GRID）回到启停区出发点方格**。
+ *     注意这一段**不是接着第 5 段的**：第 5 段是 22→14（结束在 14），而回程按要求
+ *     从 22 出发 —— 两段的端点对不上，所以回程起点必须显式给出，不能靠"上一段终点"推。
+ * 0 = 只规划去程 5 段（第 6 个槽在屏上显示 "--"）。 */
+#define RADAR_RETURN_TO_START     1
+#define RADAR_RETURN_FROM_GRID    22U   /* 第 6 段起点（改路线时记得一起改） */
+
+/* ---- 雷达收放舵机（第 4 路 SERVO_RADAR，TIM4_CH1 = PD12，见 servo.c）----
+ * 机构：**舵机 0° = 雷达伸出（扫描时用），300° = 雷达收入车内（行驶时用）**。
+ * （2026-10-14 变动：360° → 180°（保险）→ **300°**（用户确认）；舵机量程仍是 0~360°。）
+ * ⚠ 0°↔300° 是 300° 的大行程（走长边），单程约 0.9s；如果实际机构只允许短边(60°)，
+ *   需要给平滑函数加『最短路径』逻辑 —— 现在按 300° 长边执行。
+ * 时序封装在 radar_task 的 Radar_SetDeployed(true/false)（内部阻塞到舵机到位）：
+ *     伸出 → Radar_RunOnce()（方格扫描 + 六段规划）→ 收回 → 再开跑。
+ * 舵机上电初值是 300°（收起，= 2167us），避免一上电雷达就弹出来。 */
+#define RADAR_SERVO_OUT_DEG       0.0f     /* 伸出角（扫描时） */
+#define RADAR_SERVO_IN_DEG        300.0f   /* 收起角（行驶时）；2026-10-14：360°→180°(保险)→300°(用户确认) */
+#define RADAR_SERVO_STEP_DEG      1.5f     /* 平滑分步：每步角度(°)，0°↔300° 行程约 200 步(≈400ms) */
+#define RADAR_SERVO_STEP_MS       2U       /* 每步间隔(ms)：1.5°/2ms ≈ 750°/s，整程约 720ms */
+#define RADAR_SERVO_SETTLE_MS     500U     /* 转完后的物理到位裕量(ms)，之后才扫描/开跑 */
 
 /* ---- 行为开关 ---- */
 
-/* ★ 用哪一份位姿（2026-10-14）★
- *   起因：上位机把启停区2 朝向偏移设成 -72.8°、区1 设成 107.2° 后扫描准确，
- *         而本程序当时用的是 0°／与上位机差 180° 的值 → 坐标系整体旋转，
- *         扫出来的障碍方格位置和数量都不对（见 改动记录 第 62 节）。
+/* ★ 位姿由谁设（2026-10-14 定稿）★
+ *   **用户已在上位机里把位姿设好并写入雷达 Flash** → 本程序**不做任何位姿修改**，故取 1。
  *
- *   0 = **程序自己设**（当前选择，2026-10-14 应用户要求）：每次上电用下面各区的
- *       X/Y/朝向发一次 SET_POSE，**只改会话位姿、不写雷达 Flash**。
- *       好处是**雷达里存着什么就不重要了** —— 本程序成为位姿的唯一来源，行为可复现。
- *       代价是：这几个数必须是真的对；不对就是扫不对（没有"用雷达里那份"兜底）。
- *   1 = 不设：跳过 SET_POSE，直接用雷达里那份（SELECT_ZONE 载入的）。
- *       注意这只保证"不破坏"，**不保证雷达里那份就是上位机屏幕上那套** ——
- *       上位机里那个"偏移"是否真的进了雷达，需要实测（改动记录 62-补 的判别实验）。
+ *   1 = **不设**（当前）：全程不碰雷达位姿。
+ *       - 需要换区时由 SELECT_ZONE 载入该区 Flash 里那份；
+ *       - 区域已经一致时，客户端连 SELECT_ZONE 都不发（radar_client.c:477），位姿原样保留；
+ *       - 整个流程不会出现 SET_POSE / SAVE_POSE 任何一个字节。
+ *       **前提**：对应启停区的位姿已在上位机里保存进雷达（两个区是**独立保存**的，
+ *       换区前要各自确认存过）。
+ *   0 = 程序自己设（旧做法，**已停用**）：每次上电用下面各区的 X/Y/朝向发 SET_POSE 覆盖会话位姿。
+ *       当时踩过坑：值对不上 → 整片坐标系旋转 → 障碍方格位置/数量全错（改动记录 第 62/65 节）。
  *
- * 两种模式都能在 测试模式10 的"位姿页"上对照：`radar` 行是雷达自报的（= 我们发下去后它实际持有的），
- * `cfg` 行是本文件这套，`diff` 是两者朝向之差。**diff 必须是 0.0**（否则说明没发下去/被拒）。
- * 至于"这套值在场地里对不对"，只能把页0 的障碍图与上位机屏幕上的图**逐格比对**。 */
-#define LAUNCH_USE_SAVED_POSE     0
+ * 想读雷达里实际生效的位姿（排查用）：Radar_GetRadarPose()（HELLO 自报）。
+ * 下面各区的 X/Y/朝向 现在只是**参考值**（不下发）。 */
+#define LAUNCH_USE_SAVED_POSE     1
 
 #define LAUNCH_SAVE_POSE_TO_FLASH 0       /* 0 = 只改本次上电的会话位姿（推荐，不写雷达 Flash）
                                              1 = 写雷达 Flash（掉电保留，但每次上电都会重写）
@@ -90,6 +115,6 @@
 /* ---- 超时（毫秒）---- */
 
 #define LAUNCH_T_CONNECT_MS       8000U   /* 首连接宽限；握手期间客户端每 200ms 重发 HELLO */
-#define RADAR_RUN_TMO_MS          20000U  /* 整个雷达任务的外层兜底（内部各步还有自己的超时） */
+#define RADAR_RUN_TMO_MS          30000U  /* 整个雷达任务的外层兜底（5 段：方格扫描 8s + 5×1.5s，留足余量） */
 
 #endif /* __RADAR_CONFIG_H */

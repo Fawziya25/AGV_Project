@@ -3,6 +3,7 @@
 #include "launch_mission.h"
 #include "radar_config.h"
 #include "radar_uart_port.h"
+#include "servo.h"          /* 第 4 路舵机 SERVO_RADAR：雷达收放 */
 
 #include "oled.h"
 #include "test.h"           /* Dbg_Suspend / Dbg_Resume —— 雷达进度期间不让调试服务抢屏 */
@@ -65,7 +66,8 @@ static void Radar_ShowProgress(void)
     sprintf(buf, "start %u", (unsigned)s_start_grid);
     OLED_ShowString(0, 16, (uint8_t *)buf, 16, 1);
 
-    sprintf(buf, "leg %u/4 f%u", (unsigned)Launch_GetLegCount(), (unsigned)Launch_GetFailure());
+    sprintf(buf, "leg %u/%u f%u", (unsigned)Launch_GetLegCount(), (unsigned)RADAR_LEG_COUNT,
+            (unsigned)Launch_GetFailure());
     OLED_ShowString(0, 32, (uint8_t *)buf, 16, 1);
 
     if (s_link_protocol == 0U)
@@ -79,7 +81,7 @@ static void Radar_ShowProgress(void)
 }
 
 /*
- * 四段摘要：一行一段，格式 "L1 3>14 s0 n2"
+ * 六段摘要：一行一段，格式 "L1 3>14 s0 n2"
  *   Lx 段号 / 起点>终点 / s = status（0 成功）/ n = 路径节点数（不含起点、含终点）
  * 段数不足或某段失败时照样显示，方便现场一眼看出卡在哪一段。
  */
@@ -90,7 +92,9 @@ void Radar_ShowSummary(void)
     uint8_t legs = Launch_GetLegCount();
 
     OLED_Clear();
-    for (index = 0U; index < 4U; ++index) {
+    /* 5 段用 6x8 小字：每段一行占 8 像素（16 像素字体一屏只能放 4 行，5 段放不下）。
+       y = 0/8/16/24/32；失败码放 y=48，别和段行挤在一起。 */
+    for (index = 0U; index < (uint8_t)RADAR_LEG_COUNT; ++index) {
         radar_client_path_result_t path;
         if (index < legs && Launch_GetLeg(index, &path)) {
             sprintf(buf, "L%u %u>%u s%u n%u", (unsigned)(index + 1U),
@@ -99,11 +103,42 @@ void Radar_ShowSummary(void)
         } else {
             sprintf(buf, "L%u --", (unsigned)(index + 1U));
         }
-        OLED_ShowString(0, (uint8_t)(index * 16U), (uint8_t *)buf, 16, 1);
+        OLED_ShowString(0, (uint8_t)(index * 8U), (uint8_t *)buf, 8, 1);
+    }
+    if (Launch_GetFailure() != 0U) {
+        sprintf(buf, "fail f%u", (unsigned)Launch_GetFailure());
+        OLED_ShowString(0, 48, (uint8_t *)buf, 8, 1);
     }
     OLED_Refresh();
 }
 
+/* ======================== 雷达收放（舵机） ========================
+ * 机构：0° = 雷达伸出（扫描时用）、300° = 雷达收入车内（行驶时用）。
+ * 第 4 路舵机 SERVO_RADAR（TIM4_CH1 = PD12），参数在 radar_config.h 的 RADAR_SERVO_*。
+ * 第一次调用才初始化这一路（Servo_InitId），不碰机械臂那三路 ——
+ * 测试模式里 AGV_Init()/Pick_Init() 没跑也能单独收放雷达。
+ */
+static bool s_deployed;
+
+void Radar_SetDeployed(bool extended)
+{
+    if (!Servo_IsReady(SERVO_RADAR)) {
+        /* 只有真正没初始化时才初始化（servo.c 里按 SERVO_R_START_ANG = 300°(收起) 起 PWM）。
+           若上电已经由 Test_HwInit() 初始化过，这里就不会重复动作。 */
+        Servo_InitId(SERVO_RADAR);
+    }
+    /* 平滑分步转到位（阻塞到命令发完），再等物理到位裕量 */
+    Servo_SetAngleSmooth(SERVO_RADAR,
+                         extended ? (float)RADAR_SERVO_OUT_DEG : (float)RADAR_SERVO_IN_DEG,
+                         (float)RADAR_SERVO_STEP_DEG, (uint16_t)RADAR_SERVO_STEP_MS);
+    HAL_Delay((uint32_t)RADAR_SERVO_SETTLE_MS);
+    s_deployed = extended;
+}
+
+bool Radar_IsDeployed(void)
+{
+    return s_deployed;
+}
 /* ======================== 完整扫描的原始坐标（诊断用） ========================
  * 只看方格编号分不清"朝向转了多少"和"X/Y 平移了多少"；完整扫描 0x07 会回传
  * 每个障碍的场地毫米坐标 + 方格号 + 置信度，而且**不写雷达 Flash**（0x08 才写）。
@@ -259,13 +294,13 @@ bool Radar_GridIsObstacle(uint8_t grid)
     return false;
 }
 
-/* ======================== 四段路径点（全局） ======================== */
+/* ======================== 六段路径点（全局） ======================== */
 
 radar_path_t Radar_Path[RADAR_LEG_COUNT];
 uint8_t Radar_PathCount;
 
 /*
- * 把 launch_mission 的逐段结果搬到四段数组里。
+ * 把 launch_mission 的逐段结果搬到六段数组里。
  * 未跑到的段统一填 RADAR_PATH_INVALID，避免整车流程误用残值。
  */
 void Radar_SyncPathArrays(void)
@@ -328,7 +363,7 @@ void Radar_Service(void)
 {
     RadarClient_Poll();
     Launch_Poll();
-    /* 每规划完一段就同步到四段数组：整车流程不必等四段全跑完才能用第一段 */
+    /* 每规划完一段就同步到六段数组：整车流程不必等六段全跑完才能用第一段 */
     if (Launch_GetLegCount() != Radar_PathCount) Radar_SyncPathArrays();
 }
 
@@ -366,6 +401,39 @@ bool Radar_IsUsingSavedPose(void)
     return (LAUNCH_USE_SAVED_POSE != 0U);
 }
 
+/* 按当前起点格把整条路线交给 launch_mission（**逐段显式**，不用节点链）。
+ * 原因：第 5 段是 `22→14`（结束在 14），而第 6 段按要求是 **从 22 回起点格** ——
+ * "上一段终点"和"下一段起点"对不上（14 ≠ 22），链式模型表达不了，
+ * 所以用 Launch_SetLegs(starts, goals, n) 把每段的起终点都写明。
+ * 回程起点取 RADAR_RETURN_FROM_GRID（22），回程终点取当前起点格
+ * （区2 = 0、区1 = 4）→ 换启停区、用 Radar_SetStartGrid() 改起点都会自动跟上。
+ * 段数 6 ≤ LAUNCH_MAX_LEGS(7)；两个数组按 LAUNCH_MAX_LEGS 开，容量够。 */
+static void Radar_ComposeRoute(uint8_t start_grid)
+{
+    static const uint8_t goals[] = LAUNCH_ROUTE_GOALS;
+    uint8_t starts[LAUNCH_MAX_LEGS];
+    uint8_t ends[LAUNCH_MAX_LEGS];
+    uint8_t n = 0U;
+    uint8_t i;
+    uint8_t prev = start_grid;
+
+    /* 去程（链式）：起点→2→14→10→22→14 */
+    for (i = 0U; i < (uint8_t)(sizeof(goals) / sizeof(goals[0])); ++i) {
+        starts[n] = prev;
+        ends[n] = goals[i];
+        prev = goals[i];
+        ++n;
+    }
+#if RADAR_RETURN_TO_START
+    /* 第 6 段（非链式）：从 22 回到启停区出发点方格 */
+    starts[n] = (uint8_t)RADAR_RETURN_FROM_GRID;
+    ends[n] = start_grid;
+    ++n;
+#endif
+    /* 此时还没进入规划阶段，正常不会失败；失败只影响路线，不影响选区/位姿 */
+    (void)Launch_SetLegs(starts, ends, n);
+}
+
 bool Radar_SetZone(uint8_t zone)
 {
     int16_t x_mm;
@@ -391,7 +459,8 @@ bool Radar_SetZone(uint8_t zone)
     if (RadarClient_RequestSelectZone(zone) != RADAR_CLIENT_REQUEST_ACCEPTED) return false;
     /* 位姿必须跟着区域走：两区的位姿窗口不同，用错区会被客户端本地拦下 */
     if (!Launch_SetPose(x_mm, y_mm, heading_q6, zone)) return false;
-    (void)Launch_SetStart(start_grid);
+    /* 路线也按这个区重新拼：回程段终点 = 本区的出发点方格（见 Radar_ComposeRoute 的说明） */
+    Radar_ComposeRoute(start_grid);
 
     s_zone = zone;
     s_start_grid = start_grid;
@@ -411,6 +480,7 @@ bool Radar_SetStartGrid(uint8_t grid)
     if (grid > 24U) return false;
     if (!Launch_SetStart(grid)) return false;   /* 已经进入规划阶段 */
     s_start_grid = grid;
+    Radar_ComposeRoute(grid);                   /* 起点变了，回程终点也得跟着变 */
     return true;
 }
 
@@ -430,7 +500,7 @@ bool Radar_RunOnce(void)
         }
     }
 
-    Radar_SyncPathArrays();      /* 存进四段数组（Radar_Path[]），整车流程可直接读 */
+    Radar_SyncPathArrays();      /* 存进六段数组（Radar_Path[]），整车流程可直接读 */
     Radar_ShowSummary();
     Dbg_Resume();
 

@@ -1,12 +1,43 @@
 #include "chassis.h"
 #include "Emm_V5.h"
 #include "delay.h"
+#include "radar_task.h"
 #include "stm32f4xx_hal.h"
 #include "yawPIDcontroller.h"
 
 /* 小车当前坐标(mm)，上电记作原点；每次 AGV_Position_Go() 走完自动锚定到目标点 */
-uint16_t AGV_Position_X = Origin_X;
-uint16_t AGV_Position_Y = Origin_Y;
+uint16_t AGV_Position_X;
+uint16_t AGV_Position_Y;
+
+uint16_t Points_X[25];
+uint16_t Points_Y[25];
+
+void AGV_Position_Init(void)
+{
+	// 小车初始坐标，需要根据启停区设置
+    AGV_Position_X = 150;
+    AGV_Position_Y = 2250;
+
+	// 所有拐点坐标(mm)
+	Points_X[0] = 400;
+	Points_Y[0] = 2150;
+	Points_X[2] = 260;
+	Points_Y[2] = 1110;
+	Points_X[4] = 360;
+	Points_Y[4] = 300;
+	Points_X[10] = 1200;
+	Points_Y[10] = 2150;
+	Points_X[12] = 1200;
+	Points_Y[12] = 1200;
+	Points_X[14] = 1200;
+	Points_Y[14] = 300;
+	Points_X[20] = 2090;
+	Points_Y[20] = 2150;
+	Points_X[22] = 2090;
+	Points_Y[22] = 1200;
+	Points_X[24] = 2090;
+	Points_Y[24] = 300;
+}
 
 /**
  * @brief 直行
@@ -19,7 +50,7 @@ uint16_t AGV_Position_Y = Origin_Y;
  */
 void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
 {
-	float n = distance/251.33;
+	float n = distance/235.62;  // 轮子周长
 	uint32_t p = (uint32_t)(n*3200);
 	dir^=1;
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
@@ -54,7 +85,7 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
  */
 void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 {
-	float n = distance/251.33;
+	float n = distance/235.62;  // 轮子周长
 	uint32_t p = (uint32_t)(n*3200);
 
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
@@ -206,75 +237,70 @@ void AGV_Position_Rotate(uint8_t dir)
 	Emm_V5_WaitRxFrame(EMM_V5_ACK_TMO_MS);   /* 等命令回帧(原为死等，加超时防卡死) */
 }
 
+void AGV_Position_Cruise(uint8_t Route_id)
+{
+	for(uint8_t i = 0; i < Radar_Path[Route_id].count; i++)
+	{
+		AGV_Position_Go(Points_X[Radar_Path[Route_id].points[i]], Points_Y[Radar_Path[Route_id].points[i]], 0);
+	}
+}
+
 /**
  * @brief 出发
  * 
  */
-void AGV_Position_Depart_1()
+void AGV_Position_Depart()
 {
-	AGV_Position_Go(QRCode, 0);
-}
-
-void AGV_Position_Depart_2()
-{
-	Yaw_MovingOffsetStart();
-	Emm_V5_Pos_Control(2, Wheel2PositiveDir, 100, 50, 4265, 2, 1);
-	HAL_Delay(1);
-	Emm_V5_Pos_Control(4, Wheel4PositiveDir, 100, 50, 4265, 2, 1);
-	HAL_Delay(1);
-	
-	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
-	HAL_Delay(1);
-	
-	HAL_Delay(2000);
-	AGV_Position_GoStraight(1010, 100, 1);
+	// AGV_Position_Go(QRCode, 0);
+	AGV_Position_Cruise(0);
 }
 
 void AGV_Position_Qcode_to_Raw()
 {
-	AGV_Position_Go(Waypoint_LB, 0);
+	// AGV_Position_Go(Waypoint_LB, 0);
+	// AGV_TurnLeft();
+	// AGV_Position_Go(Raw, 0);
+	AGV_Position_Cruise(1);
 	AGV_TurnLeft();
-	AGV_Position_Go(Raw, 0);
 }
 
 void AGV_Position_Raw_to_Rough()
 {
-	AGV_Position_Go(Raw_Depart, 0);
+	// AGV_Position_Go(Raw_Depart, 0);
+	// AGV_TurnRight();
+	// AGV_Position_Go(Rough, 0);
+	// AGV_TurnRight();
 	AGV_TurnRight();
-	AGV_Position_Go(Rough, 0);
+	AGV_Position_Cruise(2);
 	AGV_TurnRight();
 }
 
 void AGV_Position_Rough_to_Temp()
 {
-	AGV_Position_Go(Waypoint_RF, 0);
-    AGV_TurnRight();
-	AGV_Position_Go(Temp, 0);
+	// AGV_Position_Go(Waypoint_RF, 0);
+    // AGV_TurnRight();
+	// AGV_Position_Go(Temp, 0);
+	AGV_Position_Cruise(3);
+	AGV_TurnRight();
 }
 
 void AGV_Position_Temp_to_Raw()
 {
-	AGV_Position_Go(Waypoint_RB, 0);
-    AGV_TurnRight();
-	AGV_Position_Go(Raw, 0);
+	// AGV_Position_Go(Waypoint_RB, 0);
+    // AGV_TurnRight();
+	// AGV_Position_Go(Raw, 0);
+	AGV_Position_Cruise(4);
+	AGV_TurnRight();
 }
 
 /**
  * @brief 回到原点
  * 
  */
-void AGV_Position_GoBack_1()
+void AGV_Position_GoBack()
 {
-	AGV_Position_Go(Waypoint_RF, 0);
-	AGV_TurnRight();
-	AGV_Position_Go(Destination, 0);
-}
-void AGV_Position_GoBack_2()//未修改
-{
-	AGV_Position_GoStraight(910, 150, 1);
-	HAL_Delay(200);
-	AGV_TurnLeft();
-	AGV_Position_GoStraight(1865, 150, 1);
-	HAL_Delay(200);
-	AGV_Position_Translate(150, 150, 0);
+	// AGV_Position_Go(Waypoint_RF, 0);
+	// AGV_TurnRight();
+	// AGV_Position_Go(Destination, 0);
+	AGV_Position_Cruise(5);
 }

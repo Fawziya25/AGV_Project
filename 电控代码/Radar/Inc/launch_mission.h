@@ -17,7 +17,8 @@
  *   4. （可选）重新读取保存状态，确认 grid_result_valid=1。
  *   5. 路径规划：按配置的路线依次发送 CMD_PLAN_PATH(0x14)。默认路线由
  *      LAUNCH_START_GRID + LAUNCH_ROUTE_GOALS 给出，例如
- *      {14, 10, 22, 14} 表示"起点->14、14->10、10->22、22->14"共四段；
+ *      {14, 10, 22, 14} 表示"起点->14、14->10、10->22、22->14"共四段
+ *      （**本工程在 radar_config.h 里覆盖成五段**：起点->2->14->10->22->14）；
  *      起点可在规划前用 Launch_SetStart(当前方格) 在运行时覆盖，
  *      整条路线也可用 Launch_SetRoute() 覆盖。逐段结果用 Launch_GetLeg() 读取。
  *   6. 收尾：发送高优先级定向 CMD_STOP，等待确认或超时后结束雷达阶段。
@@ -99,7 +100,9 @@
 /*
  * 默认路线：LAUNCH_START_GRID 是起点（运行时可用 Launch_SetStart 用车辆当前
  * 所在方格覆盖），LAUNCH_ROUTE_GOALS 按顺序列出每一段的终点；段数 = 终点个数。
- * 默认值对应"起点->14、14->10、10->22、22->14"四段。
+ * 本模块的默认值对应"起点->14、14->10、10->22、22->14"四段（只是通用示例），
+ * **本工程的实际路线在 radar_config.h 里覆盖成五段：起点->2->14->10->22->14**。
+ * 容量上限见下面的 LAUNCH_MAX_LEGS（7 段）。
  */
 #ifndef LAUNCH_START_GRID
 #define LAUNCH_START_GRID         0U
@@ -256,17 +259,21 @@ bool Launch_SetPose(int16_t x_mm, int16_t y_mm, uint16_t heading_q6, uint8_t zon
  * 运行时路线配置。必须在 Launch_Init() 之后、PLAN_PATH 提交之前调用；
  * 参数越界或规划阶段已经开始时返回 false 且不生效。
  *
- *   Launch_SetStart(grid)         —— 只改起点。最常见用法：起点 = 车辆当前所在方格
- *   Launch_SetRoute(nodes, count) —— 整条路线，nodes = {起点, 第1段终点, 第2段终点, ...}
+ *   Launch_SetStart(grid)         —— 只改**第 1 段**的起点。最常见用法：起点 = 车辆当前所在方格
+ *   Launch_SetRoute(nodes, count) —— 链式整条路线，nodes = {起点, 第1段终点, 第2段终点, ...}
+ *   Launch_SetLegs(starts, goals, count)
+ *                                 —— **逐段显式指定**，段与段之间不必首尾相连。
+ *                                    用于"22→14 之后再另外规划一段 22→起点"这种非链式需求。
  *   Launch_SetPath(start, goal)   —— 只规划一段，等价 Launch_SetRoute({start,goal}, 2)
  */
 bool Launch_SetStart(uint8_t start_grid);
 bool Launch_SetRoute(const uint8_t *nodes, uint8_t node_count);
+bool Launch_SetLegs(const uint8_t *starts, const uint8_t *goals, uint8_t leg_count);
 bool Launch_SetPath(uint8_t start, uint8_t goal);
 
-/* 当前生效的路线：节点数 = 段数 + 1，节点 0 是起点。 */
-uint8_t Launch_GetRouteLength(void);
-bool Launch_GetRouteNode(uint8_t index, uint8_t *grid_id);
+/* 当前生效的路线：段数，以及第 leg 段的起终点（非链式路线也成立）。 */
+uint8_t Launch_GetLegTotal(void);
+bool Launch_GetLegEndpoints(uint8_t leg, uint8_t *start, uint8_t *goal);
 
 /*
  * 逐段结果（index 0 = 第一段）。

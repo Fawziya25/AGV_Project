@@ -31,6 +31,7 @@ void AGV_Init(void)
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     DWT_Init();// 初始化DWT,用于微秒级延时
     AGV_Can_Init(); // 初始化CAN,用于电机通信
+    AGV_Position_Init(); // 初始化位置坐标系
     YawPID_Init();  /* 航向PID,增益见 yawPIDcontroller.h 的 YAW_PID_KP/KI/KD */
     HWT101_Init(&huart5);// 初始化HWT101
     Radar_Init();           /* 雷达客户端初始化（不发帧）；在 Menu_Init 之前，菜单里要选起点方格 */
@@ -56,8 +57,7 @@ void TaskProc(void)
     {
         case Depart:
             Pick_JumpTo POS_RUN;
-            if(Route_id==0) AGV_Position_Depart_1();
-            else AGV_Position_Depart_2();
+            AGV_Position_Depart();
             TaskCode = QRcode;
             break;
 //===================================到达扫码位置==================================
@@ -105,8 +105,7 @@ void TaskProc(void)
             break;
 //====================================回到原点=================================== 
         case GoBack:
-            if(Route_id==0) AGV_Position_GoBack_1();
-            else AGV_Position_GoBack_2();
+            AGV_Position_GoBack();
             TaskCode = IDLE;
             break;
         case IDLE:

@@ -41,7 +41,13 @@
  *
  * 模式表（test.c 的 Test_Switch 按这个分发）：
  *   0   Test_Switch 直接返回，跑正式流程
- *   1   Test_AGV        路径：依次跑整条路线的各段
+ *   1   Test_AGV        路径：**雷达舵机伸出(0°) → 一次 14 圈方格扫描 + 六段路径规划
+ *                       → 雷达舵机收回(300°) → 直接开跑**下面原有的固定路线各段。
+ *                       收放舵机是第 4 路 `SERVO_RADAR`（TIM4_CH1 = PD12），
+ *                       `Radar_SetDeployed(true/false)` 封装（内部阻塞到舵机到位）。
+ *                       `TEST_AGV_WITH_RADAR=0` 跳过整段雷达（含舵机收放，台架只验底盘用）。
+ *                       注意：开跑走的是原有 `AGV_Position_xxx` 固定路线，**不是**把雷达
+ *                       规划出的方格路径喂给底盘（那还缺"方格→场地坐标"映射）
  *   2   Test_Correct    视觉修正：夹爪摆观察位 + 问圆盘中心(0x02) + AGV_Correct 闭环
  *   3   Test_Pick_Scale 夹爪开合死循环(POS_RUN 不动)，调 PICK_GRAB/PICK_OBSERVE 角度用
  *   4   Test_Pick_Raw   原料 A/B/C 框 → 车上 1/2/3 槽（纯动作，不扫码不碰相机）
@@ -72,19 +78,19 @@
  *                       只碰雷达 + OLED，不初始化相机/机械臂/陀螺仪（CAN 仍由
  *                       Test_HwInit 按 TEST_CAN_ENABLE 决定，但雷达测试用不上）。
  *                       一次 A8 后自动跑完：选默认启停区 → 握手 → 设位姿 →
- *                       **一次 14 圈方格扫描** → 四段路径规划 → STOP。
+ *                       **一次 14 圈方格扫描** → **六段**路径规划 → STOP
+ *                       （2026-10-14：起点→2→14→10→22→14 共 5 段，另加第 6 段**22→起点**回启停区，
+ *                        所以是 6 段；第 6 段不接第 5 段的 14，起点显式取 RADAR_RETURN_FROM_GRID）。
  *                       跑完分页显示（C6 下一页 / C8 上一页 / A8 重跑）：
  *                         页0 障碍方格：5×5 图，"XX" = 有障碍、数字 = 空闲（方格扫描的结果）
- *                         页1 位姿对照：雷达自报的位姿（= 上位机标定的那份）vs 本机 config
- *                              那份，末行 diff 是朝向之差（±180° 归一）—— 扫出来格子不对先看这页
- *                         页2 四段概览：Lx 起点>终点 s状态 n拐点数
- *                         页3~6 第 1~4 段的**逐格**路线（雷达只回"拐点+终点"、直线段
+ *                         页1 六段概览：标题 "legs n/6 f码" + 每段一行 Lx 起点>终点 s状态 n拐点数
+ *                         页2~7 第 1~6 段的**逐格**路线（雷达只回"拐点+终点"、直线段
  *                              只回终点，屏上按说明书 §9 展开成逐格编号，6x8 小字）
- *                       参数在 Radar/Inc/radar_config.h（`LAUNCH_USE_SAVED_POSE=1` 时
- *                       不覆盖雷达里那份位姿，直接用上位机标定的）；障碍读
- *                       Radar_GetObstacleCount() / Radar_GetObstacle() / Radar_GridIsObstacle()，
+ *                       参数在 Radar/Inc/radar_config.h（`LAUNCH_USE_SAVED_POSE=0` 时程序
+ *                       每次上电自己发 SET_POSE；段数由 RADAR_LEG_COUNT + LAUNCH_ROUTE_GOALS 决定）；
+ *                       障碍读 Radar_GetObstacleCount() / Radar_GetObstacle() / Radar_GridIsObstacle()，
  *                       位姿读 Radar_GetRadarPose() / Radar_GetConfigPose()，
- *                       路径在 Radar_Path[4]（都在 Radar/Inc/radar_task.h）。**不返回。**
+ *                       路径在 Radar_Path[5]（都在 Radar/Inc/radar_task.h）。**不返回。**
  *
  * **测试之间的分界线在初始化上**：Test_HwInit() 只做共用的那几样
  * （OLED / 调试服务 / CAN / DWT / 航向PID），各外设由每个测试函数在自己开头
@@ -103,7 +109,7 @@
  * 测路径的：cmake ... -DCMAKE_C_FLAGS="-DTEST_MODE=1"。不传就按下面的默认值。
  */
 #ifndef TEST_MODE
-#define TEST_MODE   10      /* 2026-10-14：调原料→车上槽位(模式 4)，测完改回 0 */
+#define TEST_MODE   1      /* 2026-10-14：调原料→车上槽位(模式 4)，测完改回 0 */
 #endif
 
 /* ==========================================================================

@@ -5,6 +5,7 @@
 #include "main.h"
 #include "delay.h"
 #include "yawPIDcontroller.h"
+#include "radar_task.h"
 
 #define a 100
 #define b 115
@@ -33,15 +34,14 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir);
 void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir);
 void AGV_Position_Rotate(uint8_t dir);
 /* 坐标导航：Set 重新锚定小车当前坐标，Go 按 AGV_Direction 自动拆成直行/平移走到(x,y) */
+void AGV_Position_Init();
 void AGV_Position_Set(uint16_t x, uint16_t y);
 void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir);
-void AGV_Position_Depart_1();
+void AGV_Position_Depart();
 void AGV_Position_Qcode_to_Raw();
 void AGV_Position_Raw_to_Rough();
 void AGV_Position_Rough_to_Temp();
 void AGV_Position_Temp_to_Raw();
-void AGV_Position_Depart_2();
-void AGV_Position_GoBack_1();
-void AGV_Position_GoBack_2();
+void AGV_Position_GoBack();
 
 #endif

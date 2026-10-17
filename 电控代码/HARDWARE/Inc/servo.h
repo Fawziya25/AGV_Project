@@ -1,7 +1,8 @@
-#ifndef __SERVO_H
+﻿#ifndef __SERVO_H
 #define __SERVO_H
 
 #include "main.h"
+#include <stdbool.h>
 
 /**********************************************************
  * PWM 舵机驱动（50Hz，脉宽 500us~2500us）
@@ -13,6 +14,13 @@
  *               跟着缩，全偏了，必须重对。详见 servo.c 夹爪配置区那段。】
  * SERVO_TURN: 车上转盘舵机, TIM2_CH1 = PA5, 量程0°~270°(500~2500us)
  *             30°=A 槽, 150°=B 槽, 270°=C 槽，上电初值 0°=A
+ * SERVO_RADAR: 雷达收放舵机, **TIM4_CH1 = PD12**, 量程0°~360°(500~2500us)
+ *             **0° = 雷达伸出（扫描时用），300° = 雷达收入车内（行驶时用）**
+ *             【2026-10-14：收起角 360°→180°(保险)→**300°**(用户确认)；
+ *               舵机量程没变，仍是 0~360°。0°↔300° 是 300° 大行程，单程约 0.9s。】
+ *             上电初值 300°（收起 = 2167us），避免一上电雷达弹出来。
+ *             角度语义在 radar_config.h 的 RADAR_SERVO_OUT_DEG / IN_DEG，
+ *             时序封装在 radar_task 的 Radar_SetDeployed()。
  * 引脚/角度映射可在 servo.c 顶部配置区修改
  * 【2026-10-14：Z轴 与 转盘 两路接线对调过（原 Z=PA5/TIM2、转盘=PE9/TIM1）。
  *   这里只是注释，改引脚只改 servo.c 顶部配置区。】
@@ -51,14 +59,45 @@
                                      舵机追命令有滞后，没停稳臂就下去会撞料。
                                      §8 定的就是 300，中间被改成过 0，现改回来。 */
 
+/* --- 雷达收放舵机 (TIM4_CH1 = PD12) ---
+   方向/量程/上电行为这几项都在 servo.c 的雷达配置区：
+     SERVO_R_INVERT     0=正常 1=反向（角度→脉宽翻转，判断"是不是装反了"用）
+     SERVO_R_MAX_ANG    舵机**真实行程**（360/270/180…，按型号填，影响角度含义）
+     SERVO_R_START_ANG  上电初值（收起位）
+   0° = 伸出、300° = 收入（2026-10-14 用户确认 300°；量程仍 0~360°）；
+   伸出/收起要慢一点，别把雷达甩出去/夹一下。 */
+#define SERVO_R_RAMP_STEPS 20     /* 加减速段步数 */
+#define SERVO_R_RAMP_START 0.2f   /* 起步/收尾首步比例 */
+#define SERVO_R_STEP_DEG   1.5f   /* 每步角度(°)：0°↔300° 行程 ≈ 200 步(≈400ms) */
+#define SERVO_R_STEP_MS    2      /* 每步间隔(ms)：1.5°/2ms ≈ 750°/s，整程约 720ms */
+#define SERVO_R_SETTLE_MS  500    /* 到位后的物理裕量(ms)：雷达伸/收到位后再扫描或开跑 */
+
+/* 上电时要不要初始化雷达舵机并锁到收起位：
+   1 = 要（默认，上电即收起）
+   0 = **上电先不动**（正在标定"收起角/方向"时用，避免一上电就往错的方向跑）；
+       第一次 Radar_SetDeployed() 时仍会初始化并按目标角走。 */
+#ifndef SERVO_R_INIT_AT_BOOT
+#define SERVO_R_INIT_AT_BOOT  1
+#endif
+
 typedef enum
 {
     SERVO_Z = 0,     /* Z轴旋转舵机(270°)：2026-10-14 由 360° 改过来(换舵机) */
     SERVO_GRIP = 1,  /* 夹爪舵机(180°)：2026-10-14 由 270° 改过来(换舵机) */
     SERVO_TURN = 2,  /* 车上转盘舵机(270°)：30°/150°/270° = A/B/C 槽 */
+    SERVO_RADAR = 3, /* 雷达收放舵机(量程360°)：0°=伸出、300°=收入车内 */
 } ServoId;
 
 void Servo_Init(void);
+/*
+ * 只初始化**一路**舵机（不碰其他三路）。
+ * 测试模式里 AGV_Init()/Pick_Init() 没跑、机械臂可能是任意姿态，
+ * 这时只想动雷达舵机就不能调 Servo_Init()（那会顺手把 Z轴/夹爪/转盘
+ * 一起复位到各自上电初值，机械臂会突然动）。重复调用是安全的。
+ */
+void Servo_InitId(ServoId id);
+/* 该路舵机是否已初始化（PWM 已起）。1 = 已初始化。 */
+bool Servo_IsReady(ServoId id);
 void Servo_SetAngle(ServoId id, float angle);   /* 角度范围按各舵机配置 */
 /* 读取舵机当前命令角(°)：由比较寄存器反推，位置舵机无物理回读 */
 float Servo_GetAngle(ServoId id);

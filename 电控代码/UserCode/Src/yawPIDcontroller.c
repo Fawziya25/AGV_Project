@@ -276,7 +276,7 @@ void AGV_SetYaw(float yaw)
         }
         yawPID_Calculate();
         if(TurnCpltFlag)break;   /* 完成拍已StopNow,不再下发速度,防止停车后车轮继续转动 */
-        omega = yawPID.output;
+        omega = yawPID.output*0.94;
         AGV_SetOmega(omega);
     }
     TurnCpltFlag = 0;
