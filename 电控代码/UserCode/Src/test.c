@@ -354,7 +354,7 @@ static void Test_Correct(void)
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     HWT101_Init(&huart5); /* 初始化HWT101 */
 
-    Cam_SwitchTo(04);             /* 发 0x04 拿偏差，落到全局 dx/dy */
+    Cam_SwitchTo(02);             /* 发 0x02 拿偏差，落到全局 dx/dy */
     AGV_Correct(20000);           /* 闭环到对准或 20s 超时，退出时自动停车 */
 }
 
@@ -404,10 +404,14 @@ static void Test_Pick_Raw_PLUS(void)
 static void Test_Pick_Raw(void)
 {
     Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
-    Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */
-
-    Pick_Gripper_Release();   /* 先到已知爪位，免得第一次抓的时候夹爪卡在半途 */
-
+    Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
+    HWT101_Init(&huart5); /* 初始化HWT101 */
+    Pick_JumpTo POS_RAW;
+    Pick_Gripper_Observe();   /* 先到已知爪位，免得第一次抓的时候夹爪卡在半途 */
+    Cam_SwitchTo(02);             /* 发 0x02 拿偏差，落到全局 dx/dy */
+    AGV_Correct(3000);    
+    
+    
     for(uint8_t i = 0; i < 3; i++)
     {
         Pick_JumpTo POS_RAW;      /* 等块位：臂收在低位不挡相机(同 pick_task.c 的 Pick_RAW) */
@@ -485,6 +489,7 @@ static void Test_Motor(void)
                          Pick_JumpTo POS_START 只动高度(到 10mm)，半径目标 0mm
                          等于不动 —— 所以三个子测试都不受它干扰。
                          转盘子测试就靠这里起的舵机。 */
+    
 
     /* 五个子测试一次只能跑一个 —— 换就换注释（同一时刻只留一行没注释）。
        判读方法见 pick.c 里各自函数头上那段。 */
@@ -492,7 +497,7 @@ static void Test_Motor(void)
     //Pick_Test_MotorR();             /* 半径轴：把上面那行注释掉、这行打开 */
     //Pick_Test_TurnTable();          /* 转盘舵机：A(30°)/B(150°)/C(270°)，不需要 CAN */
     //Pick_Test_ZServo();             /* Z轴舵机：0°/100°/50°，不需要 CAN（臂先抬高）*/
-    //Pick_Test_Gripper();            /* 夹爪：观察/抓紧/放开 走 3 轮停在抓紧，不需要 CAN */
+    Pick_Test_Gripper();            /* 夹爪：观察/抓紧/放开 走 3 轮停在抓紧，不需要 CAN */
 
 }
 
@@ -810,7 +815,7 @@ void Test_Switch(void)
     YawPID_Init(); 
 
     Test_WaitStartKey();
-    switch(8)
+    switch(6)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正

@@ -14,9 +14,9 @@
         KP偏小(<0.5)则太慢甚至电机爬行。现场标定。
    KI/KD 量级参考角度PID，先不动；抖动就降KP。
    限幅/积分限幅/死区同角度PID习惯。 */
-#define POS_PID_KP      0.8f   /* 参考角度PID的KP：误差1px→1.25RPM */
+#define POS_PID_KP      0.20f   /* 参考角度PID的KP：误差1px→1.25RPM */
 #define POS_PID_KI      0.0f
-#define POS_PID_KD      0.03f
+#define POS_PID_KD      0.09f
 #define POS_PID_OUT_MAX 200.0f  /* 输出限幅：最大轮速RPM */
 #define POS_PID_INT_LIM 80.0f   /* 积分限幅(px) */
 /* 相机分辨率放大倍数：误差进PID前先除回旧像素比例。
@@ -183,11 +183,11 @@ void AGV_Correct(uint32_t timeout_ms)
         last_ctrl = HAL_GetTick();
 
         /* 无目标：不下发(保持上次轮速)、清零对准计数，等目标回来 */
-        if(cam_flag == 0U)
-        {
-            align_cnt = 0;
-            continue;
-        }
+        // if(cam_flag == 0U)
+        // {
+        //     align_cnt = 0;
+        //     continue;
+        // }
 
         /* 对准判定：在窗口内→计数；出窗/抖动→清零(防过冲经过0点时误停) */
         if(dx <=  AGV_ALIGN_WIN_PX && dx >= -AGV_ALIGN_WIN_PX &&

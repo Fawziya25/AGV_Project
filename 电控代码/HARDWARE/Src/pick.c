@@ -30,7 +30,7 @@
 #define PICK_MOTOR_R_VEL    100   /* 半径电机速度，保持原样 */
 #define PICK_MOTOR_R_ACC    20    /* 半径电机加速度 */
 #define PICK_MOTOR_DONE_TMO 5000  /* 电机回执等待超时(ms) */
-#define PICK_SAFE_HEIGHT_MM 10.0f  /* 安全高度(mm)：每次动作先升到此高度再水平移动+转向 */
+#define PICK_SAFE_HEIGHT_MM 2.0f  /* 安全高度(mm)：每次动作先升到此高度再水平移动+转向 */
 /* 舵机运动参数 SERVO_Z_* / SERVO_G_* / SERVO_T_* 都定义在 servo.h，三路独立 */
 
 /* 高度电机(地址5) 行程配置: 一圈=60mm, 一圈3200脉冲 → 53脉冲/mm
