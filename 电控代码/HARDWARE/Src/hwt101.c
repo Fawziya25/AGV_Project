@@ -2,6 +2,7 @@
 #include "usart.h"
 #include "yawPIDcontroller.h"
 #include "oled.h"
+#include "QRcode.h"     /* HAL 接收回调要按 USART3 分发扫码数据 */
 
 /**********************************************************
 *** HWT101 单轴航向角 IMU（维特智能）驱动程序
@@ -74,6 +75,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     {
         HWT101_FeedByte(hwt101_rxByte);
         HAL_UART_Receive_IT(huart, &hwt101_rxByte, 1U);
+    }
+    else if(huart->Instance == USART3)
+    {
+        /* 扫码模块：全程后台收，扫到的码锁存在 QRcode.c 里，等主流程来取 */
+        QRcode_RxISR(huart);
     }
 }
 

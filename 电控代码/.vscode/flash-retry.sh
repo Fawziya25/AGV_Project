@@ -14,8 +14,26 @@
 #     50/100/200/500/2000 kHz 下 0/15 全失败，而短操作稳定成功。
 #     所以调 speed 是在浪费生命，别试。
 #   * 也排除过供电问题：64KB 读几乎不耗电，照样全挂。
-#   * 因此这里用 `halt` 而**不是** `reset halt` —— reset 本身约 50% 失败
+#   * 因此这里原本用 `halt` 而**不是** `reset halt` —— reset 本身约 50% 失败
 #     （Error connecting DP: cannot read IDR），不带 reset 的序列成功率高得多。
+#     **2026-10-17 更新**：那条经验只对 SRST 成立。改用 AIRCR 的 SYSRESETREQ
+#     之后软复位很稳，反而是不带复位的 `halt` 稳定报
+#     "timeout waiting for algorithm"（实测 2/2 失败，软复位 2/2 成功）。
+#     推测是不复位时算法要跑在应用调好的 168MHz/PLL 环境下起不来。
+#     所以现在**默认先走软复位**。
+#
+# 2026-10-17 补充：Flash 被擦空之后，`halt` 就再也救不回来了
+#   * 现象：Error: timeout waiting for algorithm, a target reset is recommended
+#   * 根因：某次 erase 完 writing 失败 → 片内是空的（0x08000000 全 FF）
+#     → 复位后取到 0xFFFFFFFF 向量 → 内核 lockup（pc=0xFFFFFFFE）
+#     → lockup 下 halt 只能“停住”、不能 resume，flash 算法起不来
+#   * 判据：halt 后 `reg pc` 读回 0xFFFFFFFE / msp=0xFFFFFFFC
+#     （程序正常时也可能打印 "target was in unknown state when halt was
+#       requested"，那是假警告，PC 正常就不是 lockup）
+#   * 解法：先置 VC_CORERESET（DEMCR bit0），再写 AIRCR SYSRESETREQ 软复位，
+#     内核会停在复位向量上直到被 resume，算法就能跑。
+#     走 SYSRESETREQ 而不是 SRST，不依赖板子的 nRST 线，也不受上面那 50% 影响。
+#     本脚本遇到 lockup 签名后自动切到这条救援路径。
 #
 # 用法：
 #   bash .vscode/flash-retry.sh                 用默认 ELF
@@ -57,18 +75,44 @@ echo "ELF     : $ELF"
 echo "重试上限: $ATTEMPTS"
 echo
 
-for i in $(seq 1 "$ATTEMPTS"); do
-    printf '第 %2d 次: ' "$i"
-    OUT=$("$OPENOCD" -s "$SCRIPTS" \
+# 一次完整的烧录尝试。MODE=normal 走常规路径；
+# MODE=reset 先软复位把内核从 lockup 里拉出来（见文件头 2026-10-17 那段）
+flash_once() {
+    local mode="$1"
+    local reset_cmds=()
+    if [ "$mode" = reset ]; then
+        reset_cmds=(
+            -c "adapter speed 1000"
+            -c "mww 0xE000EDFC 0x01000001"   # DEMCR: VC_CORERESET，复位后停在复位向量
+            -c "mww 0xE000ED0C 0x05FA0004"   # AIRCR: VECTKEY + SYSRESETREQ
+            -c "sleep 200"
+        )
+    fi
+    local tail_cmds=()
+    if [ "$mode" = reset ]; then
+        tail_cmds=(
+            -c "mww 0xE000EDFC 0x01000000"   # 清 VC_CORERESET，否则 reset run 又被停住
+        )
+    fi
+    "$OPENOCD" -s "$SCRIPTS" \
         -f interface/cmsis-dap.cfg \
         -f target/stm32f4x.cfg \
         -c "transport select swd" \
         -c "init" \
+        "${reset_cmds[@]}" \
         -c "halt" \
         -c "flash write_image erase $ELF" \
         -c "verify_image $ELF" \
+        "${tail_cmds[@]}" \
         -c "reset run" \
-        -c "exit" 2>&1)
+        -c "exit" 2>&1
+}
+
+# 默认先软复位（实测更稳）；FLASH_MODE=normal 可强制走旧的 halt-only 路径
+MODE="${FLASH_MODE:-reset}"
+for i in $(seq 1 "$ATTEMPTS"); do
+    printf '第 %2d 次(%s): ' "$i" "$MODE"
+    OUT=$(flash_once "$MODE")
     # 用明确标志判定，不要用"有没有 Error 行"（2026-09-12 踩过这个坑）
     if echo "$OUT" | grep -qE "verified [0-9]+ bytes"; then
         echo "$(echo "$OUT" | grep -E 'wrote|verified' | tr '\n' ' ')"
@@ -76,6 +120,13 @@ for i in $(seq 1 "$ATTEMPTS"); do
         exit 0
     fi
     echo "$(echo "$OUT" | grep -E 'Error' | head -1)"
+    # 出现 lockup / 算法起不来 → 后续改走软复位路径
+    if echo "$OUT" | grep -qE "timeout waiting for algorithm|clearing lockup|double fault"; then
+        if [ "$MODE" != reset ]; then
+            echo "    检测到内核 lockup（Flash 可能被擦空），切到软复位烧录"
+            MODE=reset
+        fi
+    fi
     sleep 3
 done
 

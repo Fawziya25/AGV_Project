@@ -810,7 +810,7 @@ void Test_Switch(void)
     YawPID_Init(); 
 
     Test_WaitStartKey();
-    switch(4)
+    switch(8)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正
@@ -819,7 +819,7 @@ void Test_Switch(void)
         case 5:  Test_Pick_Place();  break; //    依次抓取车上123位置到圆环123位置
         case 6:  Test_Pick_Raw();        break;   //依次抓取B到车上123位置(走相机：0x04 等到静止的块才抓)
         case 7:  Test_Camera();      break;  //定时器自带oled显示接收数据 ，然后每隔5秒轮流发送所有模式指令 比如任务0x04的可以就123，0x05就用颜色数字2
-        case 8:         break;  //调用任意的测试函数
+        case 8:  QRcode_Task();       break;  //调用任意的测试函数
         case 9:  Test_Motor();       break;  //臂测试：高度/半径步进电机(0<->30mm往返)或转盘舵机(A/B/C槽)，靠看+尺子验方向和比例(不返回)
         case 10: Test_Radar();       break;  //雷达：一次方格扫描+四段路径规划，结果分页显示；C6/C8 翻页，A8 重跑(不返回)
         default: break;                      /* 号还没写实现的：初始化完就停住 */

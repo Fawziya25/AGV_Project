@@ -26,7 +26,7 @@
 #define POS_RAW_B       (180.0f, 60.0f,  2.0f )//原料区抓取位置下
 #define POS_RAW_C       (150.0f, 60.0f,  79.0f )//原料区抓取位置右前
 
-#define POS_CAR        (55.0f,   33.0f,  5.0f)//车上放置位置(Pick_RAW 三次抓取都放这一点)
+#define POS_CAR        (55.0f,   33.0f,  15.0f)//车上放置位置(Pick_RAW 三次抓取都放这一点)
 
 /* 车上三个槽位不是一个臂位姿三套坐标，而是「同一个 POS_CAR + 转盘舵机转角」：
    30°=A 槽, 150°=B 槽, 270°=C 槽(上电初值 0°=A)。用 Pick_TurnTable_Set(slot) 选。
