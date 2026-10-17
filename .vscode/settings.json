@@ -1,3 +1,14 @@
 {
-    "cmake.sourceDirectory": "${workspaceFolder}/电控代码"
+    // 这里**故意**不配 "cmake.sourceDirectory"（2026-10-16 删掉的）。
+    //
+    // 配上它 = 把这个工程交给扩展 ms-vscode.cmake-tools 管，而它会用
+    // VS 2022 BuildTools 自带的那个 cmake（3.31.6），不是 STM32Cube 的 4.3.1；
+    // 偏偏 arm-none-eabi-gcc 只在 STM32 扩展临时注入的 PATH 里，所以它一
+    // configure 就报 "arm-none-eabi-gcc ... was not found in the PATH"，
+    // 还会把 STM32 扩展正在用的 build/Debug/CMakeCache.txt 覆盖掉
+    // （残留就是 build/Debug/CMakeFiles/3.31.6-msvc6/）。
+    //
+    // 构建走其一即可，都不用 CMake Tools：
+    //   * Ctrl+Shift+B → .vscode/tasks.json 的 "Build: CMake Debug"
+    //   * STM32 扩展自己的构建/烧录按钮
 }

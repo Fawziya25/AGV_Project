@@ -62,7 +62,7 @@ void TaskProc(void)
             break;
 //===================================到达扫码位置==================================
         case QRcode:
-            QRcode_Task(); //QRcode_Task() 内部：扫码 → 显示 → 把任务码下发给相机
+            QRcode_Task();
             TaskCode = Move1;
             break;
         case Move1:
@@ -71,8 +71,9 @@ void TaskProc(void)
             break;
 //===================================到达原料区==================================
         case Pick1:
+            Pick_Correct();
             Pick_RAW();
-            //Pick_RAW_PLUS();两者选一个
+            //Pick_RAW_PLUS();还没有写完 需要搭配底盘移动才能抓取远处物块
             TaskCode = Move2;
             break;
         case Move2:
@@ -81,6 +82,7 @@ void TaskProc(void)
             break;
 //===================================到达粗加工区=================================
         case Place1:
+            Place_Correct();
             Place_ROUGH();
             TaskCode = Pick2;
             break;
@@ -94,6 +96,8 @@ void TaskProc(void)
             break;
 //===================================到达暂存区==================================
         case Place2:
+            if(RerunFlag == 0) Place_Correct();
+            else               Place_TEMP_Correct();
             Place_TEMP();
             TaskCode = (RerunFlag == 0) ? Move4 : GoBack;
             RerunFlag = 1;

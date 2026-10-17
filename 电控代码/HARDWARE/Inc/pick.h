@@ -17,15 +17,16 @@
    `Pick_JumpTo POS_RUN;` 一起报 "expected ';' before 'POS_RUN'"。
    值是按原样补回来的(90,10,10)，**没跟着这次调姿重新对过** —— 如果 POS_START
    那些数也要动，这条一起看。 */
-#define POS_OBSERVE_RAW   (180.0f, 25.0f,  59.0f)//观察原料上的物料块位置
-#define POS_OBSERVE_CIRCLE (180.0f, 140.0f,  29.0f)//观察圆环位置
+#define POS_OBSERVE_RAW   (180.0f, 3.0f,  2.0f)//观察原料上的物料块位置
+#define POS_OBSERVE_RING (180.0f, 140.0f,  29.0f)//观察圆环位置
 #define POS_OBSERVE_TEMP  (180.0f, 80.0f,  29.0f)//观察暂存区上物料块位置
 
-#define POS_RAW_A       (210.0f, 62.0f,  79.0f )//原料区抓取位置左前
-#define POS_RAW_B       (180.0f, 62.0f,  29.0f )//原料区抓取位置下
-#define POS_RAW_C       (150.0f, 62.0f,  79.0f )//原料区抓取位置右前
+#define POS_RAW       (180.0f, 8.0f,  2.0f )//原料区抓取位置下
+#define POS_RAW_A       (210.0f, 48.0f,  79.0f )//原料区抓取位置左前
+#define POS_RAW_B       (180.0f, 48.0f,  2.0f )//原料区抓取位置下
+#define POS_RAW_C       (150.0f, 48.0f,  79.0f )//原料区抓取位置右前
 
-#define POS_CAR        (55.0f,   33.0f,  5.0f)//车上放置位置(Pick_RAW 三次抓取都放这一点)
+#define POS_CAR        (56.0f,   22.0f,  18.0f)//车上放置位置(Pick_RAW 三次抓取都放这一点)
 
 /* 车上三个槽位不是一个臂位姿三套坐标，而是「同一个 POS_CAR + 转盘舵机转角」：
    30°=A 槽, 150°=B 槽, 270°=C 槽(上电初值 0°=A)。用 Pick_TurnTable_Set(slot) 选。
@@ -55,7 +56,7 @@
      不存在被静默削角的问题。详见 servo.c 夹爪配置区那段。 */
 #define PICK_OBSERVE    20.0f   /* 张开观察 */
 #define PICK_GRAB      105.0f   /* 抓住物料 */
-#define PICK_RELEASE   80.0f   /* 放开物料 */
+#define PICK_RELEASE   70.0f   /* 放开物料 */
 
 #include <stdint.h>
 #include "positionPIDcontroller.h"

@@ -34,6 +34,50 @@
       ]
     },
     {
+      "name": "gnu-gdb-for-stm32",
+      "version": "14.3.1+st.2",
+      "platform": "aarch64-darwin",
+      "selected_by": [
+        {
+          "name": "gnu-gdb-for-stm32",
+          "version": "14.3.1+st.2"
+        }
+      ]
+    },
+    {
+      "name": "gnu-gdb-for-stm32",
+      "version": "14.3.1+st.2",
+      "platform": "x86_64-darwin",
+      "selected_by": [
+        {
+          "name": "gnu-gdb-for-stm32",
+          "version": "14.3.1+st.2"
+        }
+      ]
+    },
+    {
+      "name": "gnu-gdb-for-stm32",
+      "version": "14.3.1+st.2",
+      "platform": "x86_64-linux",
+      "selected_by": [
+        {
+          "name": "gnu-gdb-for-stm32",
+          "version": "14.3.1+st.2"
+        }
+      ]
+    },
+    {
+      "name": "gnu-gdb-for-stm32",
+      "version": "14.3.1+st.2",
+      "platform": "x86_64-windows",
+      "selected_by": [
+        {
+          "name": "gnu-gdb-for-stm32",
+          "version": "14.3.1+st.2"
+        }
+      ]
+    },
+    {
       "name": "gnu-tools-for-stm32",
       "version": "14.3.1+st.2",
       "platform": "aarch64-darwin",
@@ -89,6 +133,50 @@
         {
           "name": "gnu-tools-for-stm32-14_3_1-description",
           "version": ">=0.0.1"
+        }
+      ]
+    },
+    {
+      "name": "jlink-gdbserver",
+      "version": "9.42.0+st.1",
+      "platform": "aarch64-darwin",
+      "selected_by": [
+        {
+          "name": "jlink-gdbserver",
+          "version": "9.42.0+st.1"
+        }
+      ]
+    },
+    {
+      "name": "jlink-gdbserver",
+      "version": "9.42.0+st.1",
+      "platform": "x86_64-darwin",
+      "selected_by": [
+        {
+          "name": "jlink-gdbserver",
+          "version": "9.42.0+st.1"
+        }
+      ]
+    },
+    {
+      "name": "jlink-gdbserver",
+      "version": "9.42.0+st.1",
+      "platform": "x86_64-linux",
+      "selected_by": [
+        {
+          "name": "jlink-gdbserver",
+          "version": "9.42.0+st.1"
+        }
+      ]
+    },
+    {
+      "name": "jlink-gdbserver",
+      "version": "9.42.0+st.1",
+      "platform": "x86_64-windows",
+      "selected_by": [
+        {
+          "name": "jlink-gdbserver",
+          "version": "9.42.0+st.1"
         }
       ]
     },

@@ -29,6 +29,7 @@
 /* USER CODE BEGIN Includes */
 #include "task.h"
 #include "test.h"
+#include "QRcode.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -105,6 +106,8 @@ int main(void)
   MX_UART4_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+  AGV_QRcode_Init();  /* 扫码模块一直开着：开机就开中断收码，
+                         免得码在 QRcode_Task() 之前发完被丢掉 */
   Test_Switch();/* 桌面测试：TEST_MODE=0 时立刻返回；!=0 则跑对应测试并停住，
                    程序不会走到下一行的 AGV_Init()（模式表见 test.h） */
   AGV_Init();   /* 末尾阻塞在 menu_Init() 等A8启动，期间C6/C8切换路线 */
