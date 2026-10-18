@@ -102,8 +102,9 @@
 /* 雷达收放舵机: 量程 0°~360°, 对应脉宽 500~2500us
    引脚 PD12 = TIM4_CH1（CubeMX 里 tim.c 的 HAL_TIM_MspPostInit 早配好了
    GPIO_AF2_TIM4，之前一直没用上；这里把它接进舵机表）
-   **0° = 雷达伸出、300° = 雷达收入车内**（2026-10-14 收起角 360°→180°(保险)→
-   **300°**(用户确认)；量程仍 0~360°）；上电初值 300°（收起）= 2167us */
+   **0° = 雷达伸出、340° = 雷达收入车内**（2026-10-14 收起角 360°→180°(保险)→
+   300°→**340°**(用户确认)；量程仍 0~360°）；上电初值 340°（收起）= 2389us
+   ⚠ 340° 对应 2389us，离量程端点 2500us 只剩 111us(≈20°)，机械限位/堵转风险高于 300° */
 #define SERVO_R_TIM       TIM4
 #define SERVO_R_CH        TIM_CHANNEL_1
 #define SERVO_R_PORT      GPIOD
@@ -114,10 +115,10 @@
 #define SERVO_R_MAX_ANG   360.0f
 #define SERVO_R_MIN_PULSE 500
 #define SERVO_R_MAX_PULSE 2500
-#define SERVO_R_START_ANG 300.0f   /* 上电初始角(°)：300° = 收起，别一上电就弹出去 */
+#define SERVO_R_START_ANG 340.0f   /* 上电初始角(°)：340° = 收起，别一上电就弹出去 */
 
 /* 方向：0 = 正常，1 = **反向**（角度 → 脉宽 的映射翻过来，500us↔2500us 对调）。
-   判断方法：让舵机去 0°，如果它往相反方向跑（或去 300° 反而跑到另一侧），置 1 试试。
+   判断方法：让舵机去 0°，如果它往相反方向跑（或去 340° 反而跑到另一侧），置 1 试试。
    ⚠ 注意：反向只是把角度↔脉宽映射翻过来，**不会改变"哪个角度是收起位"** ——
      如果"上电停在伸出侧"，那不是方向问题，是角度值不对
      （改 radar_config.h 的 RADAR_SERVO_IN_DEG，或把 SERVO_R_MAX_ANG 改成舵机真实行程）。 */
@@ -128,7 +129,7 @@
         （否则上电那一跳的方向可能由舵机自选，往伸出侧甩）。
    为什么默认关：现场常态是"上电前雷达就收着"（每次跑完都会收回），此时起在 收起角−Δ 会让它
         **外摆 Δ 度** 再回来 —— 用户 2026-10-14 反馈"上电往外伸了一点点"就是这个。
-       关掉后上电直接给 300° 对应的 2167us：**已在收起位就完全不动**。
+       关掉后上电直接给 340° 对应的 2389us：**已在收起位就完全不动**。
    何时打开：如果某次上电前雷达不在收起位（比如手动摆过/异常断电），又担心方向，把它置 1。 */
 #define SERVO_R_APPROACH_ENABLE  0
 #define SERVO_R_APPROACH_ANG     (SERVO_R_APPROACH_ENABLE ? (SERVO_R_START_ANG - 5.0f) : 0.0f)
@@ -259,7 +260,7 @@ void Servo_Init(void)
     Servo_TimInit(SERVO_Z);
     Servo_TimInit(SERVO_GRIP);
     Servo_TimInit(SERVO_TURN);
-    Servo_TimInit(SERVO_RADAR);   /* 雷达收放：上电复位到 300°(收起) */
+    Servo_TimInit(SERVO_RADAR);   /* 雷达收放：上电复位到 340°(收起) */
 }
 
 void Servo_SetAngle(ServoId id, float angle)

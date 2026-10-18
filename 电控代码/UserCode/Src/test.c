@@ -1,4 +1,4 @@
-
+﻿
 /**
  * @file test.c
  * @brief 桌面测试入口 + 运行时调试服务（原 dbg.c 已并进本文件）
@@ -369,13 +369,13 @@ static void Test_HwInit(void)
                              测试1(走路线)和测试2(AGV_Correct)要用;后面几个纯臂测试用不上,
                              但它的开销只有几个赋值,没必要再分一次。 */
 
-    /* ---- 雷达收放舵机：上电先复位到 300°(收起) ---- 
+    /* ---- 雷达收放舵机：上电先复位到 340°(收起) ---- 
        **为什么必须放在这里**：`MX_TIM4_Init()`（main.c 里）只是把 TIM4_CH1=PD12 的 PWM
        配置好，**并没有启动输出**；测试模式的上电流程里也没有 `Servo_Init()`。
        不初始化的话，上电后雷达舵机**根本没有 PWM 信号**（松脱/保持未知位置），
        万一停在"伸出"位置，车一开就会撞。
        `Servo_InitId(SERVO_RADAR)` 只初始化**雷达这一路**（不碰机械臂三路），
-       按 servo.c 的配置把初值定在 **300° = 收起**，并立刻起 PWM 让舵机锁在收起位。
+       按 servo.c 的配置把初值定在 **340° = 收起**，并立刻起 PWM 让舵机锁在收起位。
        模式 1（Test_AGV）随后会用 Radar_SetDeployed(true) 再伸出去。 */
 #if SERVO_R_INIT_AT_BOOT
     Servo_InitId(SERVO_RADAR);      /* 宏置 0 则上电先不动，仅第一次 Radar_SetDeployed() 时初始化 */
@@ -426,9 +426,9 @@ static void Test_WaitStartKey(void)
    → 舵机收回车内**），然后**直接开跑**下面原有的路线测试（段间停 2s 看车走到哪了）。
 
    雷达收放舵机是第 4 路 `SERVO_RADAR`（TIM4_CH1 = PD12）：
-   **0° = 雷达伸出、300° = 收入车内**（上电初值 300° 收起）。
+   **0° = 雷达伸出、340° = 收入车内**（上电初值 340° 收起）。
    整个顺序：按 A8 → 雷达伸出（0°）→ 握手/选区/位姿/方格扫描/六段规划（屏上进度+摘要）
-            → 雷达收回（300°）→ 直接开始跑车 → 各段依次执行。
+            → 雷达收回（340°）→ 直接开始跑车 → 各段依次执行。
 
    两点说明：
    1) 测试模式下 `AGV_Init()` 没被调用，所以雷达要在这里自己 `Radar_Init()`；
@@ -448,14 +448,14 @@ static void Test_AGV(void)
 {
 #if TEST_AGV_WITH_RADAR
     /* 雷达收放（舵机第 4 路 SERVO_RADAR = TIM4_CH1/PD12）：
-       **0° = 伸出、300° = 收入车内**（角度在 radar_config.h 的 RADAR_SERVO_*）。
+       **0° = 伸出、340° = 收入车内**（角度在 radar_config.h 的 RADAR_SERVO_*）。
        按要求顺序：先伸出雷达 → 扫描 + 六段规划 → 收回车内 → 再开跑。
        Radar_SetDeployed() 内部先初始化这一路舵机（不碰机械臂三路），
        并阻塞到"转完 + 到位裕量"，所以返回时雷达确实到位了。 */
     Radar_SetDeployed(true);             /* 伸出（0°） */
     Radar_Init();                        /* 选默认启停区 + 位姿 + 路线（不发帧） */
     (void)Radar_RunOnce();               /* 握手→选区→设位姿→方格扫描→六段规划→STOP */
-    Radar_SetDeployed(false);            /* 扫描/规划完，收入车内（300°） */
+    Radar_SetDeployed(false);            /* 扫描/规划完，收入车内（340°） */
     HAL_Delay(500);                      /* 摘要再看 0.5s，然后直接开跑 */
 #endif
 
@@ -858,7 +858,7 @@ void Test_Switch(void)
     YawPID_Init(); 
 
     Test_WaitStartKey();
-    switch(6)
+    switch(1)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正

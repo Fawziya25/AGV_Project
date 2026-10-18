@@ -1,4 +1,4 @@
-#include "yawPIDcontroller.h"
+﻿#include "yawPIDcontroller.h"
 #include "hwt101.h"
 #include <stdint.h>
 
@@ -15,6 +15,21 @@ uint8_t AGV_Direction = 3;
 static void AGV_StopNow(void);
 static void AGV_SetOmega(float omega);
 static void YawOffset_Init(void);
+
+/*
+ * 把任意角度归一到 (-180, 180]。
+ * 为什么需要：转弯目标角 = current ± 90/180 − offset，offset(直行跑偏+转弯残差) 可能是
+ * 负的也可能累积到十几度，算出来会落到 [-180,180] 之外。**只用一个 if 补 360 只能补一侧**
+ * （原实现 TurnLeft/Back 只处理 >180、TurnRight 只处理 <-180），另一侧漏掉时 target 会
+ * 超出量程 → yawPID 的误差按"数值差"算，车会朝**长边**转（看起来像转反/多转）。
+ * 用 while 双向归一，并且允许 ±360 的整数倍。
+ */
+static float Yaw_Normalize180(float angle)
+{
+    while(angle > 180.0f)   angle -= 360.0f;
+    while(angle <= -180.0f) angle += 360.0f;
+    return angle;
+}
 
 /**********************************************************
 *** 带门控的陀螺零偏在线估计器
@@ -257,6 +272,7 @@ static void yawPID_Calculate(void)
  */
 void AGV_SetYaw(float yaw)
 {
+    yaw = Yaw_Normalize180(yaw);   /* 入口先归一，调用方传什么都安全 */
     while(TurnCpltFlag == 0)
     {
         yawPID.target = yaw;
@@ -293,8 +309,7 @@ void AGV_TurnLeft(void)
 {
     yawPID.current = ZeroBias_GetYaw();
     yawOffset.Offset = yawOffset.MovingOffset + yawOffset.RotatingOffset;
-    target = yawPID.current + 90.0f - yawOffset.Offset;
-    if(target > 180.0f)target -= 360.0f;
+    target = Yaw_Normalize180(yawPID.current + 90.0f - yawOffset.Offset);
     AGV_SetYaw(target);
     yawOffset.MovingOffset = 0.0f;   /* 已消费,防止连续转弯时重复套用上次直行偏差 */
     AGV_Direction = (AGV_Direction+1)%4;
@@ -311,14 +326,43 @@ void AGV_TurnRight(void)
 {
     yawPID.current = ZeroBias_GetYaw();
     yawOffset.Offset = yawOffset.MovingOffset + yawOffset.RotatingOffset;
-    target = yawPID.current - 90.0f - yawOffset.Offset;
-    if(target < -180.0f)target += 360.0f;
+    target = Yaw_Normalize180(yawPID.current - 90.0f - yawOffset.Offset);
     AGV_SetYaw(target);
     yawOffset.MovingOffset = 0.0f;   /* 已消费,防止连续转弯时重复套用上次直行偏差 */
-    /* 先 +3 再取模：AGV_Direction 是 uint8_t，直接写 (x-1)%4 在 x==0 时
-       会算出 -1，赋回 uint8_t 变成 255，之后 AGV_Position_Go 里
-       4 个朝向分支全部匹配失败（连续右转 4 次必现） */
     AGV_Direction = (AGV_Direction+3)%4;
+}
+
+void AGV_TurnBack(void)
+{
+    yawPID.current = ZeroBias_GetYaw();
+    yawOffset.Offset = yawOffset.MovingOffset + yawOffset.RotatingOffset;
+    target = Yaw_Normalize180(yawPID.current + 180.0f - yawOffset.Offset);
+    AGV_SetYaw(target);
+    yawOffset.MovingOffset = 0.0f;   /* 已消费,防止连续转弯时重复套用上次直行偏差 */
+    AGV_Direction = (AGV_Direction+2)%4;
+}
+
+void AGV_Turn(uint8_t dir)
+{
+    /* ⚠ 必须是**有符号**类型：dir - AGV_Direction ∈ [-3, 3]，右转/-1、掉头/-2、
+       跨 0/3 的 -3 都是负数。原来写 uint8_t，-1/-2/-3 会被截成 255/254/253，
+       后面所有 == -1 / == -2 / == -3 的判断永远不成立 → **右转、跨0/3转、部分掉头
+       全部静默不执行**（12 种场景里 7 种），AGV_Direction 也不更新 → 后面走位全错。 */
+    int8_t turnDir = (int8_t)(dir - AGV_Direction);
+    if(turnDir == 3)turnDir = -1;      /* 3 等价于 -1（右转 90°） */
+    else if (turnDir == -3)turnDir = 1;/* -3 等价于 +1（左转 90°） */
+    if(turnDir == 2||turnDir == -2)
+    {
+        AGV_TurnBack();
+    }
+    else if(turnDir == 1)
+    {
+        AGV_TurnLeft();
+    }
+    else if(turnDir == -1)
+    {
+        AGV_TurnRight();
+    }
 }
 
 /*
