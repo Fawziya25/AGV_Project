@@ -114,9 +114,9 @@ static void PlaceToRing(uint8_t slot, uint8_t ring)
  */
 void Pick_Correct(void)
 {
-    Pick_JumpTo POS_RAW_B;
+    Pick_JumpTo POS_OBSERVE_RAW;
     Pick_Gripper_Observe();         /* 修正期间张开，别挡住相机 */
-    if(Cam_SwitchTo(02))  /* 偏差落到全局 dx/dy */
+    if(Cam_SwitchTo(02)&&cam_flag!=0)  /* 偏差落到全局 dx/dy */
     {
         AGV_Correct(3000);
     }
@@ -126,7 +126,7 @@ void Pick_Correct(void)
 /**
  * @brief 原料区取料（当前路线）：在取料位等，等到取料位上那一块就是要抓的颜色才下手
  * @note  流程（严格按任务码顺序，i = 0 → 1 → 2）：
- *        1) 摆回 POS_RAW_B、开爪（别挡住相机）；
+ *        1) 摆回 POS_OBSERVE_RAW、开爪（别挡住相机）；
  *        2) 反复发 0x02，相机回的 flag 就是"取料位上最近物块的颜色编号(1~6)"：
  *             拿到的颜色 == Pick_Color[i]  → 停，下去抓；
  *             不等（含 0x02 超时、物块还没静止）→ 接着发，**一直等，没有上限**。
@@ -151,7 +151,7 @@ void Pick_RAW(void)
 
     for(uint8_t i = 0; i < 3; i++)
     {
-        Pick_JumpTo POS_RAW;
+        Pick_JumpTo POS_OBSERVE_RAW;
         for(;;)
         {
             if(Cam_SwitchTo(02) && (cam_flag == Pick_Color[i]))

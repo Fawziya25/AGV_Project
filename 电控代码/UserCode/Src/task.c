@@ -36,8 +36,11 @@ void AGV_Init(void)
     HWT101_Init(&huart5);// 初始化HWT101
     Radar_Init();           /* 雷达客户端初始化（不发帧）；在 Menu_Init 之前，菜单里要选起点方格 */
     Menu_Init();            /* 阻塞等待A8启动，期间C6/C8切换路线 */
-    Radar_RunOnce();        /* 启动时跑一次雷达：选区→设位姿→方格扫描→四段规划→STOP
-                               （阻塞约 2~10s，屏幕显示进度与四段结果；之后整车流程不再用雷达） */
+    Radar_SetDeployed(true);             /* 伸出（0°） */
+    Radar_Init();                        /* 选默认启停区 + 位姿 + 路线（不发帧） */
+    (void)Radar_RunOnce();               /* 握手→选区→设位姿→方格扫描→六段规划→STOP */
+    Radar_SetDeployed(false);            /* 扫描/规划完，收入车内（300°） */
+    HAL_Delay(500);                      /* 摘要再看 0.5s，然后直接开跑 */
     TaskCode = Depart;  /* 开始 */
 }
 
@@ -117,6 +120,3 @@ void TaskProc(void)
             break;
     }
 }
-
-/* 注：原TIM7节拍回调已移除——ZeroBias_Feed() 现由 hwt101.c 每解析一帧角度帧自动调用。
-   TIM7 定时器不再启动，CubeMX 生成的 MX_TIM7_Init 仅占资源，可保留不影响运行。 */

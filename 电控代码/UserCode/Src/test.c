@@ -529,26 +529,12 @@ static void Test_Pick_Raw(void)
     Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     HWT101_Init(&huart5); /* 初始化HWT101 */
-    Pick_JumpTo POS_RAW;
-    Pick_Gripper_Observe();   /* 先到已知爪位，免得第一次抓的时候夹爪卡在半途 */
-    Cam_SwitchTo(02);             /* 发 0x02 拿偏差，落到全局 dx/dy */
-    AGV_Correct(3000);    
     
-    
-    for(uint8_t i = 0; i < 3; i++)
-    {
-        Pick_JumpTo POS_RAW;      /* 等块位：臂收在低位不挡相机(同 pick_task.c 的 Pick_RAW) */
-
-        for(;;)                   /* 一直等，不设超时 */
-        {
-            if(Cam_SwitchTo(02) && (cam_flag != 0))
-            {
-                break;            /* 有静止的块了，此刻屏上 F 就是它的颜色号 */
-            }
-        }
-
-        Test_GrabRawToCar(1, i);  /* B 位那一块 → 车上第 i 槽(box=1 即 POS_RAW_B) */
-    }
+    QRcode_Task(); 
+    // Pick_Correct();
+    // Pick_RAW();
+    Place_Correct();
+    Place_ROUGH();
 
     Pick_JumpTo POS_DEFAULT;  /* 摆臂到离开位，免得挡着相机 */
 }
@@ -557,7 +543,8 @@ static void Test_Pick_Raw(void)
 static void Test_Pick_Place(void)
 {
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */
-
+    Place_Correct();
+    Place_ROUGH();
     GRAB_AND_PLACE_TO_RING_SLOT(0, 1);   /* 车上 1 槽 → 圆环 1 号 */
     GRAB_AND_PLACE_TO_RING_SLOT(1, 2);   /* 车上 2 槽 → 圆环 2 号 */
     GRAB_AND_PLACE_TO_RING_SLOT(2, 3);   /* 车上 3 槽 → 圆环 3 号 */
