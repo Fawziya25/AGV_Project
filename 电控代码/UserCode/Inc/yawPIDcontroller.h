@@ -62,6 +62,8 @@ void AGV_SetYaw(float yaw);
 void AGV_TurnLeft(void);
 // 右转
 void AGV_TurnRight(void);
+void AGV_TurnBack(void);
+void AGV_Turn(uint8_t dir);
 
 void FormatYaw(float yaw, char *buf);
 // 主循环周期调用:OLED固定行显示当前航向(调试)

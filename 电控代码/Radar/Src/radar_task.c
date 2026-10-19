@@ -113,7 +113,7 @@ void Radar_ShowSummary(void)
 }
 
 /* ======================== 雷达收放（舵机） ========================
- * 机构：0° = 雷达伸出（扫描时用）、300° = 雷达收入车内（行驶时用）。
+ * 机构：0° = 雷达伸出（扫描时用）、340° = 雷达收入车内（行驶时用）。
  * 第 4 路舵机 SERVO_RADAR（TIM4_CH1 = PD12），参数在 radar_config.h 的 RADAR_SERVO_*。
  * 第一次调用才初始化这一路（Servo_InitId），不碰机械臂那三路 ——
  * 测试模式里 AGV_Init()/Pick_Init() 没跑也能单独收放雷达。
@@ -123,7 +123,7 @@ static bool s_deployed;
 void Radar_SetDeployed(bool extended)
 {
     if (!Servo_IsReady(SERVO_RADAR)) {
-        /* 只有真正没初始化时才初始化（servo.c 里按 SERVO_R_START_ANG = 300°(收起) 起 PWM）。
+        /* 只有真正没初始化时才初始化（servo.c 里按 SERVO_R_START_ANG = 340°(收起) 起 PWM）。
            若上电已经由 Test_HwInit() 初始化过，这里就不会重复动作。 */
         Servo_InitId(SERVO_RADAR);
     }
