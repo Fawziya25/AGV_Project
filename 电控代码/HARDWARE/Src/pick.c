@@ -18,19 +18,64 @@
 /* ===================== 可移植配置区 ===================== */
 #define PICK_MOTOR_Z_ADDR   5     /* 高度步进电机 CAN 地址 */
 #define PICK_MOTOR_R_ADDR   6     /* 半径步进电机 CAN 地址 */
-#define PICK_POS_MODE       2     /* 与四轮一致: 2=相对当前实时位置 */
 /* 各电机正方向对应的dir值(0/1)：两个轴的方向定义可以不同，反了改各自的值(取反)。
    当前 Z=0 / R=1。**这两个数都还没实测过** —— 模式 9 的 0<->30mm 往返测试就是
    用来实测它们的：看臂往哪边走，反了就取反。 */
 #define PICK_MOTOR_Z_POS_DIR  0
 #define PICK_MOTOR_R_POS_DIR  0
 /* 各电机速度/加速度(RPM)：可分别调节 */
-#define PICK_MOTOR_Z_VEL    1000   /* 高度电机速度，原100的2倍 */
+#define PICK_MOTOR_Z_VEL    1000   /* 高度电机速度；注意是原值100的10倍，不是注释里写的2倍 */
 #define PICK_MOTOR_Z_ACC    230  /* 高度电机加速度 */
 #define PICK_MOTOR_R_VEL    100   /* 半径电机速度，保持原样 */
 #define PICK_MOTOR_R_ACC    20    /* 半径电机加速度 */
 #define PICK_MOTOR_DONE_TMO 5000  /* 电机回执等待超时(ms) */
 #define PICK_SAFE_HEIGHT_MM 2.0f  /* 安全高度(mm)：每次动作先升到此高度再水平移动+转向 */
+
+/* ---- 失败恢复参数 ---- */
+#define PICK_MOTOR_RETRY_TMO    2000  /* 失败后降速重试的等待超时(ms) */
+#define PICK_READ_POS_TMO        300  /* 读 S_CPOS 实时位置的超时(ms) */
+#define PICK_MOTOR_Z_RETRY_VEL   300  /* 高度轴重试速度，低于正常值，减小顶限位冲击 */
+#define PICK_MOTOR_Z_RETRY_ACC    30
+#define PICK_MOTOR_R_RETRY_VEL   100
+#define PICK_MOTOR_R_RETRY_ACC    20
+
+/* 读回的 S_CPOS(驱动器绝对位置) 与 MCU 跟踪值的符号关系：
+   +1=同向，-1=反向。若实测读回位置与 mm 坐标增减相反，把这里改成 (-1)。 */
+#define PICK_MOTOR_Z_CPOS_SIGN   (+1)
+
+/* ---- 上电碰撞回零（可选，默认关闭） ----
+   0 = 现状：上电前人工把两轴放到 0 位，Pick_Axis_Init() 发 0x0A 把该位置设为绝对零点。
+   1 = 改为上电自动回零：写回零参数 → 触发 0x9A 模式2(多圈无限位碰撞回零) → 等结束。
+       两轴分别朝各自的机械限位顶，驱动器检测到堵转后把限位位置设成零点。
+   ⚠ 打开前必须确认两件事，否则会撞坏机构或让所有 POS_* 坐标整体偏移：
+     1) 那个机械限位就是标定 POS_* 时用的 0 位（不是的话所有高度/半径值要重标）；
+     2) 碰撞检测电流/时间按实际机构调，别用小电流快速撞。
+   回零方向不用实测：回零永远是"从 >0 的坐标往 0(限位)走"，即位置命令的负方向，
+   dir = 1 - POS_DIR。位置命令里的正方向宏改过，这里会自动跟着变。
+   回零参数：速度 RPM、超时 ms、检测电流 mA、检测时间 ms。svF=false 只写 RAM，
+   不改驱动器 EEPROM；确认参数稳定后可以改成 true 存一次。 */
+#define PICK_AXIS_AUTO_HOME      0
+#define PICK_HOME_Z_DIR          (1 - PICK_MOTOR_Z_POS_DIR)  /* 朝 0/限位：位置命令的负方向 */
+#define PICK_HOME_R_DIR          (1 - PICK_MOTOR_R_POS_DIR)  /* 同上 */
+#define PICK_HOME_VEL            100   /* 回零速度 RPM（碰撞回零建议先慢） */
+#define PICK_HOME_TMO            10000 /* 驱动器侧回零超时 ms */
+#define PICK_HOME_STALL_VEL      30    /* 碰撞检测转速 RPM */
+#define PICK_HOME_STALL_MA       800   /* 碰撞检测电流 mA（按电机/机构调） */
+#define PICK_HOME_STALL_MS       300   /* 碰撞检测时间 ms */
+#define PICK_HOME_Z_WAIT_MS      10000 /* MCU 侧等 Z 回零完成的上限 ms */
+#define PICK_HOME_R_WAIT_MS      6000  /* 半径不回到位帧，只能固定等这么久 */
+
+/* 一次步进动作的结果 */
+#define PICK_MOVE_TIMEOUT  0U   /* 没等到到位帧 */
+#define PICK_MOVE_OK       1U   /* 真到位(0xFD 0x9F) */
+#define PICK_MOVE_REJECT   2U   /* 驱动器拒收(0xFD 0xE2)：堵转保护/未使能 */
+#define PICK_MOVE_UNKNOWN  3U   /* 失败后位置又读不回来，模型不可信 */
+
+/* 诊断计数：只给调试器 watch / OLED 看，不参与控制 */
+volatile uint32_t Pick_Diag_TimeoutCnt = 0U;   /* Z 轴等待超时次数 */
+volatile uint32_t Pick_Diag_RejectCnt  = 0U;   /* Z 轴收到 0xFD 0xE2 次数 */
+volatile uint8_t  Pick_Diag_LastStatus = PICK_MOVE_OK;  /* 最近一次 Z 动作结果 */
+volatile int32_t  Pick_Diag_LastCpos   = 0;    /* 最近一次读回的 Z 位置(脉冲) */
 /* 舵机运动参数 SERVO_Z_* / SERVO_G_* / SERVO_T_* 都定义在 servo.h，三路独立 */
 
 /* 高度电机(地址5) 行程配置: 一圈=60mm, 一圈3200脉冲 → 53脉冲/mm
@@ -54,174 +99,382 @@
 /* ======================================================= */
 
 /**
- * @brief 发送电机相对移动命令但不等待（返回本次脉冲数，0=不移动）
- * @note  只发指令不等回执，供 Pick_JumpTo 与舵机并行；半径不需要确认返回。
+ * @brief 等步进电机回帧，并把"到位 / 拒收 / 超时"三种结果分开
+ * @retval PICK_MOVE_OK(0xFD 0x9F) / PICK_MOVE_REJECT(0xFD 0xE2) / PICK_MOVE_TIMEOUT
+ * @note  不能直接用 Emm_V5_WaitArrive()：它只认 0x9F，会把 0xE2 当成"继续等"，
+ *        最后只能报一个笼统的超时。0xE2 的含义是"命令没被执行"（堵转保护/未使能），
+ *        和"走到一半超时"的处置方式完全不同，必须分开。
  */
-static uint32_t Pick_StepperMove_Issue(uint8_t addr, int32_t pos)
+static uint8_t Pick_WaitArriveEx(uint32_t tmo_ms)
 {
-    uint32_t mag = (pos >= 0) ? (uint32_t)pos : (uint32_t)(-pos);
-    if(mag == 0) return 0;                      /* 0 脉冲不发指令 */
-    uint8_t posDir = (addr == PICK_MOTOR_Z_ADDR) ? PICK_MOTOR_Z_POS_DIR : PICK_MOTOR_R_POS_DIR;
-    uint16_t vel   = (addr == PICK_MOTOR_Z_ADDR) ? PICK_MOTOR_Z_VEL : PICK_MOTOR_R_VEL;
-    uint8_t  acc   = (addr == PICK_MOTOR_Z_ADDR) ? PICK_MOTOR_Z_ACC : PICK_MOTOR_R_ACC;
-    uint8_t dir = (pos >= 0) ? posDir : (1 - posDir);
-    Emm_V5_Pos_Control(addr, dir, vel, acc, mag, PICK_POS_MODE, 0);
-    HAL_Delay(1);                               /* 防粘包；只发指令，不等回执 */
-    return mag;
-}
+    uint32_t t0 = HAL_GetTick();
 
-/**
- * @brief 驱动单个步进电机相对移动 pos 个脉冲并等它真正到位（正=dir0, 负=dir1）
- * @note  发送前清掉历史回执帧，发送后等电机到位返回标志(0xFD 0x9F)，参考chassis.c
- *        电机到达目标位置后才回这一帧，等到它就等于物理到位；带超时防卡死。
- */
-static uint32_t Pick_StepperMove(uint8_t addr, int32_t pos)
-{
-    uint32_t mag = (pos >= 0) ? (uint32_t)pos : (uint32_t)(-pos);
-    if(mag == 0) return 0;                      /* 0 脉冲不发指令 */
-    uint8_t posDir = (addr == PICK_MOTOR_Z_ADDR) ? PICK_MOTOR_Z_POS_DIR : PICK_MOTOR_R_POS_DIR;
-    uint16_t vel   = (addr == PICK_MOTOR_Z_ADDR) ? PICK_MOTOR_Z_VEL : PICK_MOTOR_R_VEL;
-    uint8_t  acc   = (addr == PICK_MOTOR_Z_ADDR) ? PICK_MOTOR_Z_ACC : PICK_MOTOR_R_ACC;
-    uint8_t dir = (pos >= 0) ? posDir : (1 - posDir);
-
-    Emm_V5_ClearRxFrame();                      /* 清历史回执帧，确保等的是本次电机返回的帧 */
-    HAL_Delay(10);
-    Emm_V5_Pos_Control(addr, dir, vel, acc, mag, PICK_POS_MODE, 0);
-    HAL_Delay(10);
-
-    /* 等电机到位返回标志(0xFD 0x9F)，参考chassis.c；带超时防止堵转时卡死 */
-    Emm_V5_WaitArrive(PICK_MOTOR_DONE_TMO);
-    return mag;
-}
-
-/* 高度电机当前位置(脉冲)，上电位置记作零点0 */
-static int32_t pick_motorZPos = 0;
-
-/**
- * @brief 高度电机移动到指定 mm 位置（绝对位置，上电位置=0）
- * @note  目标先钳位到 [0, PICK_MOTOR_Z_MAX_MM]，再算相对增量走，
- *        配合 MCU 跟踪当前位置；发送后阻塞到高度电机到位返回标志。
- * @param mm 目标位置(mm)
- */
-static void Pick_MotorZ_MoveToMM(float mm)
-{
-    if(mm < 0.0f)                    mm = 0.0f;
-    if(mm > PICK_MOTOR_Z_MAX_MM)     mm = PICK_MOTOR_Z_MAX_MM;
-
-    int32_t target = (int32_t)(mm * PICK_MOTOR_Z_MM_PUL + 0.5f);
-    int32_t delta  = target - pick_motorZPos;
-    if(delta != 0)
+    while((HAL_GetTick() - t0) < tmo_ms)
     {
-        Pick_StepperMove(PICK_MOTOR_Z_ADDR, delta);
-        pick_motorZPos = target;
+        Dbg_Service();
+        if(can.rxFrameFlag)
+        {
+            can.rxFrameFlag = false;            /* 消费本帧 */
+            if(can.rxData[0] == 0xFD)
+            {
+                if(can.rxData[1] == 0x9F) return PICK_MOVE_OK;
+                if(can.rxData[1] == 0xE2) return PICK_MOVE_REJECT;
+            }
+        }
     }
+    return PICK_MOVE_TIMEOUT;
 }
 
-/* 半径电机当前位置(脉冲)，上电位置记作零点0 */
+/**
+ * @brief 失败后的驱动器恢复：解除堵转保护 + 重新使能
+ * @note  Emm_V5 的堵转保护是**锁存**的：顶到机械限位后不发 0x0E 解除，
+ *        后续位置命令会一直以 0xFD 0xE2 拒收，直到断电重启。
+ *        本工程原来从未调用过 Emm_V5_Reset_Clog_Pro()，这是"卡住后只能断电"的直接原因。
+ */
+static void Pick_MotorRecover(uint8_t addr)
+{
+    Emm_V5_Reset_Clog_Pro(addr);
+    HAL_Delay(20);
+    Emm_V5_En_Control(addr, true, false);
+    HAL_Delay(20);
+    Emm_V5_ClearRxFrame();
+}
+
+/**
+ * @brief 读回电机实时位置(S_CPOS / 0x36)，用于失败后重同步 MCU 的跟踪值
+ * @retval 1=读成功；0=超时或回帧布局不符
+ * @note  按标准回帧 [0xFD, 0x36, p3, p2, p1, p0] 解析。若实际固件回帧不同，
+ *        本函数只会返回 0，随后走"位置未知→本次动作中止"的安全路径，不会乱发命令。
+ */
+static uint8_t Pick_ReadAxisPos(uint8_t addr, int32_t *pos)
+{
+    uint32_t t0;
+    uint32_t u;
+
+    Emm_V5_ClearRxFrame();
+    HAL_Delay(2);
+    Emm_V5_Read_Sys_Params(addr, S_CPOS);
+
+    t0 = HAL_GetTick();
+    while((HAL_GetTick() - t0) < PICK_READ_POS_TMO)
+    {
+        Dbg_Service();
+        if(can.rxFrameFlag)
+        {
+            can.rxFrameFlag = false;
+            if(can.rxData[0] == 0xFD && can.rxData[1] == 0x36)
+            {
+                u = ((uint32_t)can.rxData[2] << 24) |
+                    ((uint32_t)can.rxData[3] << 16) |
+                    ((uint32_t)can.rxData[4] << 8)  |
+                    ((uint32_t)can.rxData[5]);
+                *pos = (int32_t)u;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+/* 半径电机当前位置(脉冲，绝对坐标) */
 static int32_t pick_motorRPos = 0;
 
-/**
- * @brief 半径电机移动到指定 mm：只发命令不等待，返回本次脉冲数(0=已在目标)
- * @note  供 Pick_JumpTo 与舵机并行；只发指令，不等回执
- * @param mm 目标位置(mm)，越界自动钳位
- */
-static uint32_t Pick_MotorR_MoveToMM_Issue(float mm)
-{
-    if(mm < 0.0f)                    mm = 0.0f;
-    if(mm > PICK_MOTOR_R_MAX_MM)     mm = PICK_MOTOR_R_MAX_MM;
+/* 两轴驱动器是否已经建立零点/使能 */
+static uint8_t pick_axisReady = 0;
 
-    int32_t target = (int32_t)(mm * PICK_MOTOR_R_MM_PUL + 0.5f);
-    int32_t delta  = target - pick_motorRPos;
-    uint32_t mag = 0;
-    if(delta != 0)
-    {
-        mag = Pick_StepperMove_Issue(PICK_MOTOR_R_ADDR, delta);
-        pick_motorRPos = target;
-    }
-    return mag;
+#if PICK_AXIS_AUTO_HOME
+/**
+ * @brief 写一轴的回零参数（模式2：多圈无限位碰撞回零）
+ * @note  svF=false：只作用于本次运行，不写驱动器 EEPROM（确认参数后再改 true 存一次）。
+ *        potF=false：不启用驱动器自己的"上电自动回零"，由 MCU 显式触发，时序可控。
+ */
+static void Pick_Home_WriteParams(uint8_t addr, uint8_t dir)
+{
+    Emm_V5_Origin_Modify_Params(addr, false, 2, dir,
+                                PICK_HOME_VEL, PICK_HOME_TMO,
+                                PICK_HOME_STALL_VEL, PICK_HOME_STALL_MA,
+                                PICK_HOME_STALL_MS, false);
+    HAL_Delay(20);
+    Emm_V5_ClearRxFrame();
 }
 
 /**
- * @brief 半径电机移动到指定 mm 并**等它真正到位**（与 Pick_MotorZ_MoveToMM 对称）
- * @note  正式流程用的是上面那个 Issue 版（不等回执，好跟舵机并行）。这个阻塞版
- *        只有 Pick_Test_MotorR() 在用 —— 桌面测试需要两个东西：
- *          1) 走到位再开始计时，3 秒停顿量出来的尺寸才准；
- *          2) 电机没在线时能卡满超时（"卡 5 秒"就是掉线的信号），Issue 版直接
- *             发完就走，这个诊断就没了。
- *        两个版本共用同一份钳位/增量/跟踪逻辑，改一个记得改另一个。
- * @param mm 目标位置(mm)，越界自动钳位
+ * @brief 触发一轴碰撞回零并等它结束
+ * @param has_frame 1=该轴回到位帧(高度轴)，等到 0xFD 0x9F；0=半径轴，只能固定等待
+ * @retval PICK_MOVE_OK / PICK_MOVE_REJECT / PICK_MOVE_TIMEOUT
+ * @note  失败会清一次堵转再重触发一次。半径轴收不到回帧，固定等
+ *        PICK_HOME_R_WAIT_MS；真正的结束由驱动器 PICK_HOME_TMO 兜底。
  */
-static void Pick_MotorR_MoveToMM(float mm)
+static uint8_t Pick_Home_Axis(uint8_t addr, uint8_t dir, uint8_t has_frame, uint32_t wait_ms)
 {
-    if(mm < 0.0f)                    mm = 0.0f;
-    if(mm > PICK_MOTOR_R_MAX_MM)     mm = PICK_MOTOR_R_MAX_MM;
+    uint8_t r;
 
-    int32_t target = (int32_t)(mm * PICK_MOTOR_R_MM_PUL + 0.5f);
-    int32_t delta  = target - pick_motorRPos;
-    if(delta != 0)
+    Pick_Home_WriteParams(addr, dir);
+
+    Emm_V5_Origin_Trigger_Return(addr, 2, false);
+    HAL_Delay(20);
+
+    if(has_frame)
     {
-        Pick_StepperMove(PICK_MOTOR_R_ADDR, delta);
-        pick_motorRPos = target;
+        int32_t pos;
+
+        r = Pick_WaitArriveEx(wait_ms);
+        if(r != PICK_MOVE_OK)
+        {
+            /* 兜底判据：有的固件回零结束不发 0x9F，但零点已经写成 0，
+               这时读回 S_CPOS 应在 0 附近，直接算成功，不要盲目再撞一次。 */
+            if(Pick_ReadAxisPos(addr, &pos) && (pos > -100) && (pos < 100))
+                return PICK_MOVE_OK;
+
+            Pick_MotorRecover(addr);
+            Emm_V5_Origin_Trigger_Return(addr, 2, false);
+            HAL_Delay(20);
+            r = Pick_WaitArriveEx(wait_ms);
+        }
+        return r;
     }
+
+    HAL_Delay(wait_ms);
+    Emm_V5_ClearRxFrame();
+    return PICK_MOVE_OK;
+}
+#endif
+
+/**
+ * @brief 步进电机两轴驱动器初始化：建立绝对零点，并清堵转/使能
+ * @note  **必须在 AGV_Can_Init() 之后调用**（本函数会通过 CAN 发命令）。
+ *        零点来源由 PICK_AXIS_AUTO_HOME 决定：
+ *          0(默认)：**上电前人工把两轴放在 0 位**，本函数发 0x0A 把该位置设为 0mm；
+ *          1：不收人工 0 位，两轴各自朝机械限位做碰撞回零(0x9A 模式2)，限位即 0mm。
+ *        现在两轴都走绝对位置，**所有动作都依赖这个零点** —— 零点错，臂的
+ *        目标高度/半径就整体偏移，所以上电前的人工 0 位必须保持一致。
+ *        正常流程里四个 Pick_* 入口会在第一次动作时自动补调一次（见 Pick_Axis_EnsureInit），
+ *        所以 task.c 里那句显式调用是"把时序写明"，不是唯一触发点。
+ */
+void Pick_Axis_Init(void)
+{
+    Emm_V5_En_Control(PICK_MOTOR_Z_ADDR, true, false);
+    HAL_Delay(20);
+    Emm_V5_En_Control(PICK_MOTOR_R_ADDR, true, false);
+    HAL_Delay(20);
+
+    Emm_V5_Reset_Clog_Pro(PICK_MOTOR_Z_ADDR);
+    HAL_Delay(20);
+    Emm_V5_Reset_Clog_Pro(PICK_MOTOR_R_ADDR);
+    HAL_Delay(20);
+
+#if PICK_AXIS_AUTO_HOME
+    /* 先 Z 后 R：Z 先到限位停稳，再做水平方向的回零，避免低位横扫。
+       回零成功后驱动器的零点就在机械限位上，**不再发 0x0A** ——
+       万一回零没成功，0x0A 会把"当时随便一个位置"错当成零点，比不清更危险。 */
+    Pick_Diag_LastStatus = Pick_Home_Axis(PICK_MOTOR_Z_ADDR, PICK_HOME_Z_DIR, 1, PICK_HOME_Z_WAIT_MS);
+    (void)Pick_Home_Axis(PICK_MOTOR_R_ADDR, PICK_HOME_R_DIR, 0, PICK_HOME_R_WAIT_MS);
+#else
+    /* 人工 0 位模式：先使能、清堵转，最后再清零位置，
+       保证 0x0A 一定被执行，且清零后不会被使能瞬间的微小动作带偏。 */
+    Emm_V5_Reset_CurPos_To_Zero(PICK_MOTOR_Z_ADDR);
+    HAL_Delay(20);
+    Emm_V5_Reset_CurPos_To_Zero(PICK_MOTOR_R_ADDR);
+    HAL_Delay(20);
+#endif
+
+    Emm_V5_ClearRxFrame();
+
+    pick_motorRPos = 0;
+    pick_axisReady = 1;
+}
+
+/* 第一次机械臂动作前自动建立零点；之后是空操作 */
+static void Pick_Axis_EnsureInit(void)
+{
+    if(!pick_axisReady) Pick_Axis_Init();
 }
 
 /**
- * @brief 机械臂初始化：启动两个PWM舵机(输出并归位到启动角)，随后把臂收到
- *        运输位 POS_START，使整车移动前尺寸在框内。
- * @note  Pick_JumpTo 走步进电机，依赖 AGV_Can_Init() 已就绪；且本函数在
- *        HWT101_Init 的20s手动校准之后调用，臂运动不会干扰零偏窗口。
+ * @brief 机械臂舵机初始化（只启动 PWM 舵机，不发任何 CAN 命令）
+ * @note  本函数在 AGV_Can_Init() **之前**被调用，所以不能在这里碰步进电机。
+ *        步进电机零点和使能由 Pick_Axis_Init() 负责，必须在 CAN 起来之后调用。
+ *        （旧注释说本函数会把臂收到 POS_START，函数体里其实早就没有这句了。）
  */
 void Pick_Init(void)
 {
     Servo_Init();
 }
 
+/* ==================== 绝对位置模式：高度轴 + 半径轴 ==================== */
+
 /**
- * @brief 基本动作：门字形轨迹 —— 先升到安全高度，再水平移动+转向，最后降高度
- *        固定顺序：先升到 PICK_SAFE_HEIGHT_MM 并等高度电机到位返回标志 → 并行(转向+半径) → 再降到目标高度
- * @param servoZ   Z轴旋转舵机目标角(°)，量程 0~270
- * @param motorZ_mm 高度电机目标位置(mm)，量程 0~100（越界自动钳位）
- * @param motorR_mm 半径电机目标位置(mm)，量程 0~74（越界自动钳位）
- * @note  若半径和旋转角都已到位，则省略门字形，直接改高度（省一次无谓升降）。
- *        否则：先升到安全高度并等高度电机到位返回标志(0xFD 0x9F)，再并行
- *        (半径只发指令不等回执 + 舵机CPU平滑转动)，舵机运行结束后再降到目标高度；
- *        舵机实际发生转动时才加 SERVO_Z_SETTLE_MS 裕量。
- *        夹爪不在此控制，由调用方按需开合。
+ * @brief 发一条绝对位置命令(raF=1)，不等回执
+ * @note  绝对模式下方向由"目标位置 vs 当前位置"决定，dir 固定 0。
+ *        半径电机(地址6)不回到位帧，只能走这个"只发不等"的版本。
  */
-void Pick_JumpTo(float servoZ, float motorZ_mm, float motorR_mm)
+static void Pick_StepperIssue(uint8_t addr, int32_t target, uint16_t vel, uint8_t acc)
 {
-    /* 半径目标先钳位（与内部一致），用于短路判断 */
-    if(motorR_mm < 0.0f)                motorR_mm = 0.0f;
-    if(motorR_mm > PICK_MOTOR_R_MAX_MM) motorR_mm = PICK_MOTOR_R_MAX_MM;
-    int32_t rTarget = (int32_t)(motorR_mm * PICK_MOTOR_R_MM_PUL + 0.5f);
-    float   zCur    = Servo_GetAngle(SERVO_Z);
-    uint8_t zMoved  = (fabsf(zCur - servoZ) >= 0.5f);  /* 舵机是否真的需要转 */
-    uint8_t rMoved  = (rTarget != pick_motorRPos);     /* 半径是否真的需要走 */
+    Emm_V5_ClearRxFrame();
+    HAL_Delay(2);
+    Emm_V5_Pos_Control(addr, 0, vel, acc, (uint32_t)target, 1, 0);   /* raF=1: 绝对位置 */
+    HAL_Delay(2);
+}
+
+/**
+ * @brief 绝对位置模式移动一个轴（raF=1）并等待到位，失败自动清堵转并降速重试一次
+ * @retval PICK_MOVE_OK / PICK_MOVE_REJECT / PICK_MOVE_TIMEOUT
+ * @note  绝对目标**天然幂等**：同一个目标重发不会多走。丢一帧、超时一次都不会
+ *        让"接下来该走多少"算错 —— 这是它和相对模式(raF=2)最本质的区别，
+ *        也是开源工程不出现本问题的原因（它们上电回零后一直发绝对目标）。
+ *        只给**会回到位帧**的轴用（高度轴）；半径轴用 Pick_StepperIssue。
+ */
+static uint8_t Pick_StepperMove(uint8_t addr, int32_t target, uint16_t vel, uint8_t acc)
+{
+    uint8_t  r;
+    uint16_t retryVel = (addr == PICK_MOTOR_Z_ADDR) ? PICK_MOTOR_Z_RETRY_VEL : PICK_MOTOR_R_RETRY_VEL;
+    uint8_t  retryAcc = (addr == PICK_MOTOR_Z_ADDR) ? PICK_MOTOR_Z_RETRY_ACC : PICK_MOTOR_R_RETRY_ACC;
+
+    Pick_StepperIssue(addr, target, vel, acc);
+
+    r = Pick_WaitArriveEx(PICK_MOTOR_DONE_TMO);
+    if(r == PICK_MOVE_OK) return r;
+
+    Pick_MotorRecover(addr);
+
+    /* 绝对目标重发安全；第二次降速，减小顶着限位时的冲击 */
+    Pick_StepperIssue(addr, target, retryVel, retryAcc);
+
+    return Pick_WaitArriveEx(PICK_MOTOR_RETRY_TMO);
+}
+
+/**
+ * @brief 高度电机移动到指定 mm（绝对位置模式）
+ * @note  绝对坐标以 Pick_Axis_Init() 建立的零点为准（上电时人工放好的 0 位）。
+ *        失败时会读回 S_CPOS 修正跟踪值；即使读不回，下一次绝对目标仍然正确，
+ *        因为目标不依赖"上次走了多少"。
+ */
+static uint8_t Pick_MotorZ_MoveToMM(float mm)
+{
+    int32_t target, cpos;
+    uint8_t r;
+
+    if(mm < 0.0f)                mm = 0.0f;
+    if(mm > PICK_MOTOR_Z_MAX_MM) mm = PICK_MOTOR_Z_MAX_MM;
+    target = (int32_t)(mm * PICK_MOTOR_Z_MM_PUL + 0.5f);
+
+    r = Pick_StepperMove(PICK_MOTOR_Z_ADDR, target, PICK_MOTOR_Z_VEL, PICK_MOTOR_Z_ACC);
+
+    if(r == PICK_MOVE_OK)
+    {
+        Pick_Diag_LastStatus = PICK_MOVE_OK;
+        return PICK_MOVE_OK;
+    }
+
+    if(r == PICK_MOVE_REJECT)       Pick_Diag_RejectCnt++;
+    else if(r == PICK_MOVE_TIMEOUT) Pick_Diag_TimeoutCnt++;
+
+    /* 失败后读回真实位置只用于诊断；绝对目标本身不依赖"上次走了多少" */
+    if(Pick_ReadAxisPos(PICK_MOTOR_Z_ADDR, &cpos))
+    {
+        Pick_Diag_LastCpos = PICK_MOTOR_Z_CPOS_SIGN * cpos;
+    }
+
+    Pick_Diag_LastStatus = r;
+    return r;
+}
+
+/**
+ * @brief 半径电机移动到指定 mm（绝对位置）：只发命令不等待
+ * @note  半径电机(地址6)**不回到位帧**（硬件实测），所以不能等回执，
+ *        只把目标发出去，和舵机并行 —— 等回执只会每次白等满 7 秒超时。
+ *        绝对目标的好处仍然成立：丢一帧不会累积偏差，下一趟动作再发同一个目标
+ *        就会自动纠回。零点由 Pick_Axis_Init() 在上电时建立（见该函数说明）。
+ */
+static void Pick_MotorR_MoveToMM_Issue(float mm)
+{
+    int32_t target;
+
+    if(mm < 0.0f)                mm = 0.0f;
+    if(mm > PICK_MOTOR_R_MAX_MM) mm = PICK_MOTOR_R_MAX_MM;
+
+    target = (int32_t)(mm * PICK_MOTOR_R_MM_PUL + 0.5f);
+    Pick_StepperIssue(PICK_MOTOR_R_ADDR, target, PICK_MOTOR_R_VEL, PICK_MOTOR_R_ACC);
+    pick_motorRPos = target;                  /* 只用于轨迹短路判断，不用于算增量 */
+}
+
+/* ==================== 轨迹：JumpTo / MoveTo 共用 ==================== */
+
+/**
+ * @brief 两条基本轨迹的共用实现
+ * @param liftFirst 1=门字形(先到安全高度)；0=直接到位
+ * @note  JumpTo 与 MoveTo 的唯一差别就是 liftFirst，共用一份代码，避免两边改漏。
+ *        两轴都走**绝对位置(raF=1)**，所以轨迹里不需要再做"走了多少"的增量运算。
+ *        安全高度那一步失败时**直接中止本次动作**：臂的高度未知时继续转向/走半径
+ *        比停下更危险。旧代码不检查这一步的结果，是"顶着限位还要继续做动作"的来源。
+ */
+static void Pick_Traj_Move(float servoZ, float motorZ_mm, float motorR_mm, uint8_t liftFirst)
+{
+    float   rClamped = motorR_mm;
+    int32_t rTarget;
+    uint8_t zMoved, rMoved;
+
+    if(rClamped < 0.0f)                rClamped = 0.0f;
+    if(rClamped > PICK_MOTOR_R_MAX_MM) rClamped = PICK_MOTOR_R_MAX_MM;
+    rTarget = (int32_t)(rClamped * PICK_MOTOR_R_MM_PUL + 0.5f);
+
+    zMoved = (fabsf(Servo_GetAngle(SERVO_Z) - servoZ) >= 0.5f);  /* 舵机是否真的需要转 */
+    rMoved = (rTarget != pick_motorRPos);                        /* 半径是否真的需要走 */
 
     /* 半径和旋转角都在目标：不需要门字形，直接改高度到目标高度 */
     if(!rMoved && !zMoved)
     {
-        Pick_MotorZ_MoveToMM(motorZ_mm);
+        (void)Pick_MotorZ_MoveToMM(motorZ_mm);
         return;
     }
 
-    /* 1. 有水平/旋转动作：先升到安全高度，等高度电机到位返回标志 */
-    Pick_MotorZ_MoveToMM(PICK_SAFE_HEIGHT_MM);
+    /* 1. 门字形：先到安全高度；失败则中止，不在未知高度做水平动作 */
+    if(liftFirst)
+    {
+        if(Pick_MotorZ_MoveToMM(PICK_SAFE_HEIGHT_MM) != PICK_MOVE_OK) return;
+    }
 
-    /* 2. 并行：半径命令只发不等回执，舵机平滑耗时盖住半径运动 */
-    if(rMoved) Pick_MotorR_MoveToMM_Issue(motorR_mm);
-    if(zMoved) Servo_SetAngleSmooth(SERVO_Z, servoZ, SERVO_Z_STEP_DEG, SERVO_Z_STEP_MS);
-    if(zMoved) HAL_Delay(SERVO_Z_SETTLE_MS);               /* 舵机物理到位裕量 */
+    /* 2. 并行：半径命令只发不等回执，舵机平滑耗时盖住半径运动。
+       绝对目标幂等：即使 rMoved 为假也重发一次，
+       万一上一次命令丢帧，这一趟就把半径拉回正确位置。 */
+    Pick_MotorR_MoveToMM_Issue(rClamped);
+    if(zMoved)
+    {
+        Servo_SetAngleSmooth(SERVO_Z, servoZ, SERVO_Z_STEP_DEG, SERVO_Z_STEP_MS);
+        HAL_Delay(SERVO_Z_SETTLE_MS);              /* 舵机物理到位裕量 */
+    }
 
     /* 3. 舵机运行结束后，再运行到输入的目标高度 */
-    Pick_MotorZ_MoveToMM(motorZ_mm);
+    (void)Pick_MotorZ_MoveToMM(motorZ_mm);
+}
+
+/**
+ * @brief 基本动作：门字形轨迹 —— 先升到安全高度，再水平移动+转向，最后降高度
+ * @param servoZ   Z轴旋转舵机目标角(°)，量程 0~270
+ * @param motorZ_mm 高度电机目标位置(mm)，量程 0~130（越界自动钳位）
+ * @param motorR_mm 半径电机目标位置(mm)，量程 0~85（越界自动钳位）
+ * @note  若半径和旋转角都已到位，则省略门字形，直接改高度（省一次无谓升降）。
+ *        否则：先升到安全高度并等高度电机到位返回标志(0xFD 0x9F)，再并行
+ *        (半径只发指令不等回执 + 舵机CPU平滑转动)，舵机运行结束后再降到目标高度。
+ *        **两轴都走绝对位置模式(raF=1)**：前提是 Pick_Axis_Init() 已把"上电时
+ *        人工放好的 0 位"写为两轴驱动器零点（入口第一次动作会自动补调）。
+ *        若上电时臂不在 0 位，绝对坐标会整体偏移 —— 这是唯一的使用约束。
+ *        高度轴：绝对目标 + 等到位；失败清堵转、降速重试一次。
+ *        半径轴：不回到位帧，只发绝对目标不等回执（丢帧靠下一趟重发自动纠正）。
+ *        好处：超时/丢帧/顶限位一次，不会污染后续动作的坐标。
+ *        夹爪不在此控制，由调用方按需开合。
+ */
+void Pick_JumpTo(float servoZ, float motorZ_mm, float motorR_mm)
+{
+    Pick_Axis_EnsureInit();
+    Pick_Traj_Move(servoZ, motorZ_mm, motorR_mm, 1U);
 }
 
 /**
  * @brief 基本动作：直接到位 —— 不上升到安全高度，直接转向+走半径，最后改高度
  * @param servoZ   Z轴旋转舵机目标角(°)，量程 0~270
- * @param motorZ_mm 高度电机目标位置(mm)，量程 0~100（越界自动钳位）
- * @param motorR_mm 半径电机目标位置(mm)，量程 0~74（越界自动钳位）
+ * @param motorZ_mm 高度电机目标位置(mm)，量程 0~130（越界自动钳位）
+ * @param motorR_mm 半径电机目标位置(mm)，量程 0~85（越界自动钳位）
  * @note  与 Pick_JumpTo 的区别只有一个：省掉"先升到 PICK_SAFE_HEIGHT_MM"那一步和
  *        其回执等待，因此更快，但臂是贴着当前高度横扫过去的 —— 只有当起点到终点
  *        之间确实没有障碍、不会蹭到料台或已放的物料时才可以用。
@@ -230,28 +483,8 @@ void Pick_JumpTo(float servoZ, float motorZ_mm, float motorR_mm)
  */
 void Pick_MoveTo(float servoZ, float motorZ_mm, float motorR_mm)
 {
-    /* 半径目标先钳位（与内部一致），用于短路判断 */
-    if(motorR_mm < 0.0f)                motorR_mm = 0.0f;
-    if(motorR_mm > PICK_MOTOR_R_MAX_MM) motorR_mm = PICK_MOTOR_R_MAX_MM;
-    int32_t rTarget = (int32_t)(motorR_mm * PICK_MOTOR_R_MM_PUL + 0.5f);
-    float   zCur    = Servo_GetAngle(SERVO_Z);
-    uint8_t zMoved  = (fabsf(zCur - servoZ) >= 0.5f);  /* 舵机是否真的需要转 */
-    uint8_t rMoved  = (rTarget != pick_motorRPos);     /* 半径是否真的需要走 */
-
-    /* 半径和旋转角都在目标：没什么可动，直接改高度到目标高度 */
-    if(!rMoved && !zMoved)
-    {
-        Pick_MotorZ_MoveToMM(motorZ_mm);
-        return;
-    }
-
-    /* 并行：半径命令只发不等回执，舵机平滑耗时盖住半径运动 */
-    if(rMoved) Pick_MotorR_MoveToMM_Issue(motorR_mm);
-    if(zMoved) Servo_SetAngleSmooth(SERVO_Z, servoZ, SERVO_Z_STEP_DEG, SERVO_Z_STEP_MS);
-    if(zMoved) HAL_Delay(SERVO_Z_SETTLE_MS);               /* 舵机物理到位裕量 */
-
-    /* 舵机运行结束后，再运行到输入的目标高度 */
-    Pick_MotorZ_MoveToMM(motorZ_mm);
+    Pick_Axis_EnsureInit();
+    Pick_Traj_Move(servoZ, motorZ_mm, motorR_mm, 0U);
 }
 
 /* ==================== 夹爪控制 ==================== */
@@ -270,21 +503,6 @@ void Pick_Gripper_Release(void)
     Servo_SetAngleSmooth(SERVO_GRIP, PICK_RELEASE, SERVO_G_STEP_DEG, SERVO_G_STEP_MS);
 }
 
-/* --- 快动版：直接设角，一步到位 --- */
-void Pick_Gripper_Quick_Observe(void)
-{
-    Servo_SetAngle(SERVO_GRIP, PICK_OBSERVE);
-}
-
-void Pick_Gripper_Quick_Grab(void)
-{
-    Servo_SetAngle(SERVO_GRIP, PICK_GRAB);
-}
-
-void Pick_Gripper_Quick_Release(void)
-{
-    Servo_SetAngle(SERVO_GRIP, PICK_RELEASE);
-}
 
 /* ==================== 车上转盘 ==================== */
 
@@ -335,11 +553,12 @@ void Pick_TurnTable_Set(uint8_t slot)
  */
 void Pick_Test_MotorZ(void)
 {
+    Pick_Axis_EnsureInit();            /* 以当前（上电前的 0 位）建立两轴零点 */
     for(;;)
     {
-        Pick_MotorZ_MoveToMM(50.0f);   /* → 30mm，阻塞到高度电机到位返回标志 */
-        HAL_Delay(3000);               /* 停 3 秒：量尺寸 / 看方向 */
-        Pick_MotorZ_MoveToMM(30.0f);    /* → 回 0mm(上电位置) */
+        (void)Pick_MotorZ_MoveToMM(30.0f);   /* → 30mm，阻塞到高度电机到位返回标志 */
+        HAL_Delay(3000);                     /* 停 3 秒：量尺寸 / 看方向 */
+        (void)Pick_MotorZ_MoveToMM(0.0f);    /* → 回 0mm(上电位置) */
         HAL_Delay(3000);
     }
 }
@@ -354,8 +573,8 @@ void Pick_Test_MotorZ(void)
  *              别的数按比例回推，去改 PICK_MOTOR_R_MM_PER_REV。
  *              **100mm/圈 这个数一次都没实测过**，只有纸面值 —— 量出来不是
  *              30mm 很正常，按实测的改就行。
- *        响应：每步卡满 5 秒(PICK_MOTOR_DONE_TMO)才进下一步 = 电机没在线/
- *              没使能/地址不对。这条能测到，靠的是下面那个阻塞版接口。
+ *        响应：半径电机**不回到位帧**，所以本测试固定停 3 秒观察、不等回执；
+ *              不能靠"卡满 5 秒"判断掉线，只能看实物有没有动。
  *
  *        30mm 按现在的 100mm/圈 是 960 脉冲 = 0.3 圈。零点同样是**上电位置**
  *        (记作 0mm)，先到 30mm 再回 0，一正一反在同一坐标里，不会越走越偏。
@@ -365,16 +584,19 @@ void Pick_Test_MotorZ(void)
  *        另外 A8 暂停在这个测试里救不了 —— Dbg_Service 的暂停只给四个轮发停车，
  *        不停臂的高度/半径电机。要停只能断电。
  *
- * @note  依赖 AGV_Can_Init() 已就绪。用的是阻塞版 Pick_MotorR_MoveToMM()
- *        （不是正式流程那个 Issue 版），理由见那个函数头上的说明。
+ *        判读：每轮回到 0 后，臂应停在**同一个机械位置** —— 绝对目标幂等，
+ *        几十轮下来不会越走越偏。
+ *
+ * @note  依赖 AGV_Can_Init() 已就绪。用只发不等的 Pick_MotorR_MoveToMM_Issue()。
  */
 void Pick_Test_MotorR(void)
 {
+    Pick_Axis_EnsureInit();
     for(;;)
     {
-        Pick_MotorR_MoveToMM(30.0f);   /* → 30mm，阻塞到半径电机到位返回标志 */
-        HAL_Delay(3000);               /* 停 3 秒：量尺寸 / 看方向 */
-        Pick_MotorR_MoveToMM(0.0f);    /* → 回 0mm(上电位置) */
+        Pick_MotorR_MoveToMM_Issue(30.0f);   /* 绝对 30mm，只发不等 */
+        HAL_Delay(3000);                     /* 停 3 秒：量尺寸 / 看方向 */
+        Pick_MotorR_MoveToMM_Issue(0.0f);    /* 绝对 0mm = 上电时的机械 0 位 */
         HAL_Delay(3000);
     }
 }
@@ -452,38 +674,8 @@ void Pick_Test_ZServo(void)
     }
 }
 
-/**
- * @brief 夹爪三态测试：观察 → 抓紧 → 放开，走 3 轮，最后停在**抓紧**
- * @note  一次验三件事：
- *          1) **三个角度对不对** —— 三个状态就是 pick.h 里那三个宏：
- *             `PICK_OBSERVE`(张最开) / `PICK_GRAB`(收紧夹住) /
- *             `PICK_RELEASE`(松到放开)，**具体度数看 pick.h，别在这儿抄**
- *             （2026-10-14 夹爪换 180° 舵机后正在重对，抄一份就得跟着改一份）。
- *             看每个状态爪口开合到不到位、会不会夹不紧或者顶死在物料上。
- *             要调就改那三个宏，别处不用动。
- *          2) **行程够不够、有没有卡住** —— 这三个宏沿角度轴从小到大是
- *             `PICK_OBSERVE < PICK_RELEASE < PICK_GRAB`（张开→半开→夹紧；
- *             ⚠ 换舵机重对之后如果 PICK_RELEASE 不再落在另两个中间，下面那段
- *             "每轮扫过整个行程"的说法就不成立了，跟着改）。
- *             本测试按 观察 → 抓紧 → 放开 走，每轮都扫过整个行程再从放开回观察，
- *             哪一段发涩/丢步/拉不动（有持续堵转声）一眼能看出来。
- *          3) **换线对不对** —— 夹爪是唯一在 PA6/TIM3 上的舵机（没跟着 2026-10-14
- *             那次 Z轴↔转盘 对调动过）。它动 = 这条链是通的。
- *
- *        走的是 `Pick_Gripper_*`（平滑分步版），不是 `Pick_Gripper_Quick_*`：
- *        测试要看的就是真实动作手感，得和正式流程用同一套。
- *        三个动作之间各停 1 秒 —— `Pick_Gripper_*` 内部**不额外等待**，
- *        且分步只保证"命令发完了"，舵机追命令还有滞后，不留停顿看不清停位。
- *
- *        **跑完停在"抓紧"不再动**：舵机靠 PWM 保持角度，松手也不会掉。
- *        末尾那个空转循环里**必须手工调 Dbg_Service()** —— 自旋不经过被 test.c
- *        盖掉的 HAL_Delay，不调的话 A8 暂停和 OLED 刷新全都失效（两者都住在
- *        Dbg_Service 里）。DBG_ENABLE=0 时它是个空语句，这个循环就纯空转。
- *
- * @note  依赖 Servo_Init() 已就绪。**不需要 CAN** —— 纯舵机测试。
- *        **臂可以不动**：这个测试只碰夹爪，不改高度/半径/转向，所以不用先抬臂
- *        （整爪口对着空气开合就行；要试夹物料就自己先摆好）。
- */
+
+
 void Pick_Test_Gripper(void)
 {
     uint8_t round;
@@ -505,42 +697,4 @@ void Pick_Test_Gripper(void)
     {
         Dbg_Service();            /* 见函数头：这个自旋不经过被盖掉的 HAL_Delay */
     }
-}
-
-
-/* 原料区抓一块放到车上第 slot 槽：槽位靠转盘选，臂位姿三次都是 POS_CAR */
-static void Pick_Test_RawToCar(uint8_t slot)
-{
-    Pick_Gripper_Release();
-    Pick_JumpTo POS_OBSERVE_RAW;
-    Pick_JumpTo POS_RAW_A;
-    Pick_Gripper_Grab();
-    Pick_TurnTable_Set(slot);       /* 先选槽 */
-    Pick_JumpTo POS_CAR;            /* 再摆臂 */
-    Pick_Gripper_Release();
-}
-
-void Pick_Test_Transfer(void)
-{
-    Pick_Test_RawToCar(0);          /* → A 槽(30°) */
-    Pick_Test_RawToCar(1);          /* → B 槽(150°) */
-    Pick_Test_RawToCar(2);          /* → C 槽(270°) */
-
-    // ========== 回到运行位置 ==========
-    Pick_JumpTo POS_RUN;
-}
-
-
-void Pick_DebugTest(void)
-{
-    Pick_JumpTo POS_RAW_A;
-    Pick_Gripper_Release();
-    Pick_JumpTo POS_1;
-    Pick_Gripper_Grab();
-    Pick_JumpTo POS_3;
-    // // 夹爪控制 + 机械臂移动逻辑
-
-
-    // /* 全部完成，回到运行位置 */
-    // Pick_JumpTo POS_RUN;
 }

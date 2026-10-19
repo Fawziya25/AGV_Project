@@ -331,6 +331,7 @@ static void Test_Camera(void);    /* 7 相机指令轮询(0x00~0x05 每5秒一�
 static void Test_OLED(void);      /* 8 屏幕自检(甲段不带TIM7 / 乙段带TIM7，不返回) */
 static void Test_Motor(void);     /* 9 臂测试：高度/半径步进电机 + 转盘/Z轴舵机(都不返回) */
 static void Test_Radar(void);     /* 10 雷达：一次方格扫描 + 六段路径规划，结果分页显示(不返回) */
+static void Test_Place_Ring(void);/* 11 POS_CAR → 圆环 1/2/3 简单放置(纯动作，不扫码不碰相机) */
 
 static void Test_GrabRawToCar(uint8_t box, uint8_t slot);  /* 测试4 用的单步时序 */
 static void Test_WaitStartKey(void);                       /* 跑测试前阻塞等 A8 短按 */
@@ -552,6 +553,40 @@ static void Test_Pick_Place(void)
     Pick_JumpTo POS_DEFAULT;  /* 摆臂到离开位，免得挡着相机 */
 }
 
+/* 模式 11：最简单的放置过程 —— 只验"车上取料位 → 三个圆环"这条动作链，
+   不扫码、不碰相机、不做视觉修正。转盘固定在 A 槽位不动，所以三次都从
+   同一个 POS_CAR 取料：
+     循环 3 次：POS_CAR 取 → 夹紧 → 对应圆环(POS_1/2/3) → 放开
+   ⚠ 前提：上电前高度/半径两轴已人工放在 0 位(Pick_Axis_Init 会
+     把该位置写成绝对零点)，否则绝对坐标整体偏移。
+   ⚠ 半径电机(地址 6)不回到位帧，Pick_JumpTo 只发目标不等回执；
+     看动作是否到位以实物为准，不要以为没回帧就是没动。 */
+static void Test_Place_Ring(void)
+{
+    Pick_Init();              /* 机械臂上电+收臂到运输位 */
+    Pick_Gripper_Release();   /* 先到已知爪位，免得第一次抓时夹爪卡在半途 */
+
+    for(uint8_t ring = 1U; ring <= 3U; ring++)
+    {
+        Pick_JumpTo POS_CAR;   /* 先回车上取料位 */
+        Pick_Gripper_Grab();        /* 夹住物料 */
+        HAL_Delay(300);             /* 停一下，肉眼确认夹稳了再走 */
+
+        switch(ring)
+        {
+            case 1U:  Pick_JumpTo POS_1; break;
+            case 2U:  Pick_JumpTo POS_2; break;
+            default:  Pick_JumpTo POS_3; break;
+        }
+
+        Pick_Gripper_Release();     /* 放到圆环上 */
+        HAL_Delay(300);             /* 等爪子完全张开，臂再抬走 */
+    }
+
+    Pick_JumpTo POS_RUN;       /* 跑完收到车体上方运输位 */
+}
+
+
 
 #define CAM_TEST_STEP_MS   5000U   /* 每条命令停留多久 */
 #define CAM_TEST_TICK_MS    100U   /* 等待切片：每片插一次 Cam_Service() 做接收自愈 */
@@ -602,11 +637,11 @@ static void Test_Motor(void)
     
 
     /* 五个子测试一次只能跑一个 —— 换就换注释（同一时刻只留一行没注释）。
-       判读方法见 pick.c 里各自函数头上那段。 */
-    //Pick_Test_MotorZ();               /* 高度轴：死循环，不返回 */
-    //Pick_Test_MotorR();             /* 半径轴：把上面那行注释掉、这行打开 */
-    //Pick_Test_TurnTable();          /* 转盘舵机：A(30°)/B(150°)/C(270°)，不需要 CAN */
-    //Pick_Test_ZServo();             /* Z轴舵机：0°/100°/50°，不需要 CAN（臂先抬高）*/
+       判读方法见 pick.c 里各自函数头上那段。高度/半径现在都是绝对位置模式。 */
+    Pick_Test_MotorZ();               /* 高度轴：死循环，不返回 */
+    Pick_Test_MotorR();             /* 半径轴：把上面那行注释掉、这行打开 */
+    Pick_Test_TurnTable();          /* 转盘舵机：A(30°)/B(150°)/C(270°)，不需要 CAN */
+    Pick_Test_ZServo();             /* Z轴舵机：0°/100°/50°，不需要 CAN（臂先抬高）*/
     Pick_Test_Gripper();            /* 夹爪：观察/抓紧/放开 走 3 轮停在抓紧，不需要 CAN */
 
 }
@@ -845,7 +880,7 @@ void Test_Switch(void)
     YawPID_Init(); 
 
     Test_WaitStartKey();
-    switch(6)
+    switch(11)   /* 临时选跑哪个模式：改成 11 跑新的放置测试，正式流程用 TEST_MODE=0 */
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正
@@ -857,6 +892,7 @@ void Test_Switch(void)
         case 8:  QRcode_Task();       break;  //调用任意的测试函数
         case 9:  Test_Motor();       break;  //臂测试：高度/半径步进电机(0<->30mm往返)或转盘舵机(A/B/C槽)，靠看+尺子验方向和比例(不返回)
         case 10: Test_Radar();       break;  //雷达：一次方格扫描+六段路径规划，结果分页显示；C6/C8 翻页，A8 重跑(不返回)
+        case 11: Test_Place_Ring();  break;  //简单放置：POS_CAR 取料 → 圆环 1/2/3 依次放(纯动作，不扫码不碰相机)
         default: break;                      /* 号还没写实现的：初始化完就停住 */
     }
 

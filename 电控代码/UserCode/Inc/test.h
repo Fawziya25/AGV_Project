@@ -91,6 +91,11 @@
  *                       障碍读 Radar_GetObstacleCount() / Radar_GetObstacle() / Radar_GridIsObstacle()，
  *                       位姿读 Radar_GetRadarPose() / Radar_GetConfigPose()，
  *                       路径在 Radar_Path[5]（都在 Radar/Inc/radar_task.h）。**不返回。**
+ *  11  Test_Place_Ring  最简单的放置过程：只跑「车上取料位 POS_CAR → 圆环 1/2/3」，
+ *                       转盘固定在 A 槽不动，不扫码、不碰相机、不做视觉修正。
+ *                       每个圆环都是 POS_CAR 取料 → 夹紧 → POS_x → 放开，
+ *                       三次跑完收到 POS_RUN。用来单独验绝对位置模式的
+ *                       "取-放"动作链。**前提：上电前两轴人工放 0 位。**
  *
  * **测试之间的分界线在初始化上**：Test_HwInit() 只做共用的那几样
  * （OLED / 调试服务 / CAN / DWT / 航向PID），各外设由每个测试函数在自己开头
@@ -109,7 +114,7 @@
  * 测路径的：cmake ... -DCMAKE_C_FLAGS="-DTEST_MODE=1"。不传就按下面的默认值。
  */
 #ifndef TEST_MODE
-#define TEST_MODE   0      /* 2026-10-14：调原料→车上槽位(模式 4)，测完改回 0 */
+#define TEST_MODE   1      /* 2026-10-14：调原料→车上槽位(模式 4)，测完改回 0 */
 #endif
 
 #ifndef DBG_ENABLE

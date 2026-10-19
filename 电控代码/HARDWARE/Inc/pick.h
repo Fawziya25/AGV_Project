@@ -88,7 +88,7 @@ void Pick_Init(void);
    调用时序：**先本函数选好槽，再把臂摆到 POS_CAR** —— 转盘转动时臂不在车体上方。 */
 void Pick_TurnTable_Set(uint8_t slot);
 
-/* 基本动作（两版，按"路上有没有障碍"选）：
+/* 基本动作（两版，按"路上有没有障碍"选）。**两轴都走绝对位置模式(raF=1)**：
 
    Pick_JumpTo —— 门字形(Π形)：先升到 PICK_SAFE_HEIGHT_MM 再转向+走半径，最后降高度。
                   慢，但臂是抬起来跨过去的，路上有料台/已放物料也能安全通过。默认用这个。
@@ -101,9 +101,32 @@ void Pick_TurnTable_Set(uint8_t slot);
    ⚠ 量程一改，**下面 POS_* 那批宏的第一个值(角度z)全都指向了新的物理位置**：
      数值没变，但同样的命令角现在物理转得更远（5.56 → 7.41us/°）。正式跑之前
      每个姿态都要重新对一遍位。
-   两版都不控制夹爪，由调用方按需开合。 */
+   两版都不控制夹爪，由调用方按需开合。
+
+   绝对位置的使用前提：上电前把高度/半径两轴人工放在 0 位；Pick_Axis_Init() 会把
+   该位置写成驱动器绝对零点（入口第一次动作时会自动补调）。
+     - 绝对目标幂等：丢一帧/超时一次不会让后续"该走多少"算错；
+     - 高度轴失败时先清堵转保护(0x0E)并重新使能，再降速重试一次，不会一直卡在限位；
+     - 半径轴不回到位帧，只发绝对目标不等回执，下一趟重发同一目标自动纠回；
+     - 安全高度那一步失败会中止本次动作，不在未知高度继续转向/走半径。
+   ⚠ 若上电时臂不在 0 位，绝对坐标会整体偏移 —— 这是唯一约束。 */
 void Pick_JumpTo(float servoZ, float motorZ_mm, float motorR_mm);
 void Pick_MoveTo(float servoZ, float motorZ_mm, float motorR_mm);
+
+/* 步进电机两轴驱动器初始化：建立 Z/R 绝对零点，清堵转保护，重新使能。
+   **必须在 AGV_Can_Init() 之后调用**（内部要发 CAN 命令）。
+   零点来源见 pick.c 的 PICK_AXIS_AUTO_HOME：
+     0(默认) = 上电前人工放 0 位，发 0x0A 把该位置设为 0mm；
+     1       = 两轴分别做多圈无限位碰撞回零(0x9A 模式2)，机械限位即 0mm。
+   正常流程里 Pick_* 第一次动作会自动补调一次；task.c 里显式调用是为了把时序写明。 */
+void Pick_Axis_Init(void);
+
+/* 诊断计数：调试器 watch / OLED 用，不参与控制。只在 Z 轴动作后更新。
+   判读：LastStatus=1 正常；=2 驱动器 0xE2 拒收；=0 等到位超时；=3 位置未知（读不回）。 */
+extern volatile uint32_t Pick_Diag_TimeoutCnt;   /* 超时次数 */
+extern volatile uint32_t Pick_Diag_RejectCnt;    /* 0xFD 0xE2 次数 */
+extern volatile uint8_t  Pick_Diag_LastStatus;   /* 最近一次 Z 动作结果 */
+extern volatile int32_t  Pick_Diag_LastCpos;     /* 最近一次读回的 Z 位置(脉冲) */
 
 
 
@@ -128,7 +151,7 @@ void Pick_Test_ZServo(void);    /* Z舵机: 0°/100°/50° 循环，每处停 3s
 void Pick_Test_Gripper(void);   /* 夹爪: 观察/抓紧/放开 走 3 轮，停在抓紧（纯舵机，不走 CAN；
                                    三个角度见上面 PICK_OBSERVE/GRAB/RELEASE，别抄死数）*/
 void Pick_Test_MotorZ(void);    /* 高度电机: 0 <-> 30mm 往返，每处停 3s（测方向和比例用）*/
-void Pick_Test_MotorR(void);    /* 半径电机: 0 <-> 30mm 往返，每处停 3s（同 MotorZ，测方向和比例）*/
+void Pick_Test_MotorR(void);    /* 半径电机: 0 <-> 30mm 往返，每处停 3s（只发不等）*/
 void Pick_Test_TurnTable(void); /* 转盘舵机: A(30°)/B(150°)/C(270°) 循环，每处停 3s（纯舵机，不走 CAN）*/
 
 /* 老的桌面调试入口：一段写死的取放动作(POS_RAW_A → POS_1 → POS_3)，

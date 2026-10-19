@@ -1,4 +1,5 @@
 {
+    "cmake.sourceDirectory": "D:/Projects/github/AGV_Project/电控代码"
     // 这里**故意**不配 "cmake.sourceDirectory"（2026-10-16 删掉的）。
     //
     // 配上它 = 把这个工程交给扩展 ms-vscode.cmake-tools 管，而它会用

@@ -31,6 +31,7 @@ void AGV_Init(void)
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     DWT_Init();// 初始化DWT,用于微秒级延时
     AGV_Can_Init(); // 初始化CAN,用于电机通信
+    Pick_Axis_Init(); // 步进电机两轴：当前物理位置(上电前放好的0位)=绝对零点，并清堵转/使能
     AGV_Position_Init(); // 初始化位置坐标系
     YawPID_Init();  /* 航向PID,增益见 yawPIDcontroller.h 的 YAW_PID_KP/KI/KD */
     HWT101_Init(&huart5);// 初始化HWT101
@@ -76,7 +77,7 @@ void TaskProc(void)
         case Pick1:
             Pick_Correct();
             Pick_RAW();
-            //Pick_RAW_PLUS();还没有写完 需要搭配底盘移动才能抓取远处物块
+            //Pick_RAW_PLUS(); /* 备用路线：读一次0x03三框颜色，A/C 位带底盘补偿（已实现，未启用）*/
             TaskCode = Move2;
             break;
         case Move2:
