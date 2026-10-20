@@ -52,9 +52,9 @@ extern uint8_t RerunFlag;
    一小段再抓；抓完放回车上后再挪回来。开环相对位移，来回等距，净值 0，
    不会让后续导航的坐标基准漂掉。
    方向：AGV_Position_GoStraight 里 0 = 向后、1 = 向前；C 与 A 对称，取反。 */
-#define PICK_RAW_SIDE_MM   30U      /* 3cm */
-#define PICK_RAW_A_DIR     0U       /* A 位：负方向(向后) */
-#define PICK_RAW_C_DIR     1U       /* C 位：与 A 反方向(向前) */
+#define PICK_RAW_SIDE_MM   70U      /* 7cm */
+#define PICK_RAW_A_DIR     1U       /* A 位：负方向(向后) */
+#define PICK_RAW_C_DIR     0U       /* C 位：与 A 反方向(向前) */
 
 /* ========================== 静态辅助函数 ========================== */
 
@@ -263,7 +263,7 @@ void Pick_RAW_PLUS(void)
     uint8_t  grabbed = 0;               /* 已抓走的块数 = 转盘已经转过的格数 */
 
     Pick_JumpTo POS_OBSERVE_RAW_PLUS;   /* 要看清三个框，得摆到观察位 */
-
+    HAL_Delay(2000);//没到位就打开开关了
     if(!Cam_SwitchTo(03))
     {
         Pick_JumpTo POS_RUN;

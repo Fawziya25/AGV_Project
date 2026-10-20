@@ -27,11 +27,11 @@ void AGV_Init(void)
 {
     OLED_Init();
     Dbg_Init();           /* 开TIM7调试服务:周期刷相机数据 + A8短按暂停/继续 */
-    Pick_Init();
+    
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     DWT_Init();// 初始化DWT,用于微秒级延时
     AGV_Can_Init(); // 初始化CAN,用于电机通信
-    Pick_Axis_Init(); // 步进电机两轴：当前物理位置(上电前放好的0位)=绝对零点，并清堵转/使能
+    
     AGV_Position_Init(); // 初始化位置坐标系
     YawPID_Init();  /* 航向PID,增益见 yawPIDcontroller.h 的 YAW_PID_KP/KI/KD */
     HWT101_Init(&huart5);// 初始化HWT101
@@ -41,6 +41,8 @@ void AGV_Init(void)
     Radar_Init();                        /* 选默认启停区 + 位姿 + 路线（不发帧） */
     (void)Radar_RunOnce();               /* 握手→选区→设位姿→方格扫描→六段规划→STOP */
     Radar_SetDeployed(false);            /* 扫描/规划完，收入车内（300°） */
+    Pick_Axis_Init(); // 步进电机两轴：当前物理位置(上电前放好的0位)=绝对零点，并清堵转/使能
+    Pick_Init();
     HAL_Delay(500);                      /* 摘要再看 0.5s，然后直接开跑 */
     TaskCode = Depart;  /* 开始 */
 }

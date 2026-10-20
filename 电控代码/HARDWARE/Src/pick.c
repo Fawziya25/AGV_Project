@@ -28,7 +28,7 @@
 #define PICK_MOTOR_Z_ACC    230  /* 高度电机加速度 */
 #define PICK_MOTOR_R_VEL    100   /* 半径电机速度，保持原样 */
 #define PICK_MOTOR_R_ACC    20    /* 半径电机加速度 */
-#define PICK_MOTOR_DONE_TMO 5000  /* 电机回执等待超时(ms) */
+#define PICK_MOTOR_DONE_TMO 2000  /* 电机回执等待超时(ms) */
 #define PICK_SAFE_HEIGHT_MM 2.0f  /* 安全高度(mm)：每次动作先升到此高度再水平移动+转向 */
 
 /* ---- 失败恢复参数 ---- */
@@ -54,7 +54,7 @@
    dir = 1 - POS_DIR。位置命令里的正方向宏改过，这里会自动跟着变。
    回零参数：速度 RPM、超时 ms、检测电流 mA、检测时间 ms。svF=false 只写 RAM，
    不改驱动器 EEPROM；确认参数稳定后可以改成 true 存一次。 */
-#define PICK_AXIS_AUTO_HOME      0
+#define PICK_AXIS_AUTO_HOME      1
 #define PICK_HOME_Z_DIR          (1 - PICK_MOTOR_Z_POS_DIR)  /* 朝 0/限位：位置命令的负方向 */
 #define PICK_HOME_R_DIR          (1 - PICK_MOTOR_R_POS_DIR)  /* 同上 */
 #define PICK_HOME_VEL            100   /* 回零速度 RPM（碰撞回零建议先慢） */
@@ -62,7 +62,7 @@
 #define PICK_HOME_STALL_VEL      30    /* 碰撞检测转速 RPM */
 #define PICK_HOME_STALL_MA       800   /* 碰撞检测电流 mA（按电机/机构调） */
 #define PICK_HOME_STALL_MS       300   /* 碰撞检测时间 ms */
-#define PICK_HOME_Z_WAIT_MS      10000 /* MCU 侧等 Z 回零完成的上限 ms */
+#define PICK_HOME_Z_WAIT_MS      2000 /* MCU 侧等 Z 回零完成的上限 ms */
 #define PICK_HOME_R_WAIT_MS      6000  /* 半径不回到位帧，只能固定等这么久 */
 
 /* 一次步进动作的结果 */
@@ -111,7 +111,6 @@ static uint8_t Pick_WaitArriveEx(uint32_t tmo_ms)
 
     while((HAL_GetTick() - t0) < tmo_ms)
     {
-        Dbg_Service();
         if(can.rxFrameFlag)
         {
             can.rxFrameFlag = false;            /* 消费本帧 */
@@ -420,7 +419,6 @@ static void Pick_Traj_Move(float servoZ, float motorZ_mm, float motorR_mm, uint8
 
     zMoved = (fabsf(Servo_GetAngle(SERVO_Z) - servoZ) >= 0.5f);  /* 舵机是否真的需要转 */
     rMoved = (rTarget != pick_motorRPos);                        /* 半径是否真的需要走 */
-
     /* 半径和旋转角都在目标：不需要门字形，直接改高度到目标高度 */
     if(!rMoved && !zMoved)
     {
@@ -428,10 +426,10 @@ static void Pick_Traj_Move(float servoZ, float motorZ_mm, float motorR_mm, uint8
         return;
     }
 
-    /* 1. 门字形：先到安全高度；失败则中止，不在未知高度做水平动作 */
+    /* 1. 门字形：先到安全高度；失败不中止*/
     if(liftFirst)
     {
-        if(Pick_MotorZ_MoveToMM(PICK_SAFE_HEIGHT_MM) != PICK_MOVE_OK) return;
+        Pick_MotorZ_MoveToMM(PICK_SAFE_HEIGHT_MM);
     }
 
     /* 2. 并行：半径命令只发不等回执，舵机平滑耗时盖住半径运动。
@@ -466,7 +464,6 @@ static void Pick_Traj_Move(float servoZ, float motorZ_mm, float motorR_mm, uint8
  */
 void Pick_JumpTo(float servoZ, float motorZ_mm, float motorR_mm)
 {
-    Pick_Axis_EnsureInit();
     Pick_Traj_Move(servoZ, motorZ_mm, motorR_mm, 1U);
 }
 
@@ -483,7 +480,7 @@ void Pick_JumpTo(float servoZ, float motorZ_mm, float motorR_mm)
  */
 void Pick_MoveTo(float servoZ, float motorZ_mm, float motorR_mm)
 {
-    Pick_Axis_EnsureInit();
+    //Pick_Axis_EnsureInit();
     Pick_Traj_Move(servoZ, motorZ_mm, motorR_mm, 0U);
 }
 

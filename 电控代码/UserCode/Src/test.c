@@ -514,7 +514,7 @@ static void Test_Pick_Raw_PLUS(void)
 {
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */
 
-    Pick_Gripper_Release();   /* 先到已知爪位，免得第一次抓的时候夹爪卡在半途 */
+    //Pick_Gripper_Release();   /* 先到已知爪位，免得第一次抓的时候夹爪卡在半途 */
 
     Test_GrabRawToCar(0, 0);  /* 原料 A 框 → 车上 1 槽(转盘   0°) */
     Test_GrabRawToCar(1, 1);  /* 原料 B 框 → 车上 2 槽(转盘 150°) */
@@ -532,10 +532,10 @@ static void Test_Pick_Raw(void)
     HWT101_Init(&huart5); /* 初始化HWT101 */
     
     QRcode_Task(); 
-    // Pick_Correct();
-    // Pick_RAW();
-    Place_Correct();
-    Place_ROUGH();
+    Pick_Correct();
+    Pick_RAW_PLUS();
+    //Place_Correct();
+    //Place_ROUGH();
 
     Pick_JumpTo POS_DEFAULT;  /* 摆臂到离开位，免得挡着相机 */
 }
@@ -880,7 +880,8 @@ void Test_Switch(void)
     YawPID_Init(); 
 
     Test_WaitStartKey();
-    switch(11)   /* 临时选跑哪个模式：改成 11 跑新的放置测试，正式流程用 TEST_MODE=0 */
+    Pick_Axis_Init();
+    switch(1)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正

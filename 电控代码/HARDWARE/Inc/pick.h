@@ -17,14 +17,14 @@
    `Pick_JumpTo POS_RUN;` 一起报 "expected ';' before 'POS_RUN'"。
    值是按原样补回来的(90,10,10)，**没跟着这次调姿重新对过** —— 如果 POS_START
    那些数也要动，这条一起看。 */
-#define POS_OBSERVE_RAW_PLUS   (180.0f, 3.0f,  2.0f)//观察原料上的物料块位置
+#define POS_OBSERVE_RAW_PLUS   (180.0f, 3.0f,  100.0f)//观察原料上的物料块位置
 
 #define POS_OBSERVE_TEMP       (180.0f, 80.0f,  18.0f)//观察暂存区上物料块位置
 #define POS_OBSERVE_RAW   (180.0f, 8.0f,  2.0f )//原料区抓取位置下
 
-#define POS_RAW_A       (210.0f, 50.0f,  79.0f )//原料区抓取位置左前
+#define POS_RAW_A       (180.0f, 50.0f,  110.0f )//原料区抓取位置左前
 #define POS_RAW_B       (180.0f, 50.0f,  2.0f )//原料区抓取位置下
-#define POS_RAW_C       (150.0f, 50.0f,  79.0f )//原料区抓取位置右前
+#define POS_RAW_C       (180.0f, 50.0f,  110.0f )//原料区抓取位置右前
 
 #define POS_CAR        (55.0f,   22.0f,  18.0f)//车上放置位置(Pick_RAW 三次抓取都放这一点)
 

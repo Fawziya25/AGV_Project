@@ -30,16 +30,16 @@ void AGV_Position_Init(void)
 	Points_Y[4] = 400;
 	// 10: Rough
 	Points_X[10] = 1200;
-	Points_Y[10] = 2000;
+	Points_Y[10] = 2100;
 	Points_X[12] = 1200;
 	Points_Y[12] = 1200;
 	// 14：Raw
 	Points_X[14] = 1200;
-	Points_Y[14] = 400;
+	Points_Y[14] = 300;
 	Points_X[20] = 2000;
 	Points_Y[20] = 2000;
 	// 22: Temp
-	Points_X[22] = 2000;
+	Points_X[22] = 2100;
 	Points_Y[22] = 1200;
 	Points_X[24] = 2000;
 	Points_Y[24] = 400;
@@ -335,5 +335,5 @@ void AGV_Position_GoBack()
 	// AGV_TurnRight();
 	// AGV_Position_Go(Destination, 0);
 	AGV_Position_Cruise(5, 3);
-	AGV_Position_Go(150, 150, 0);
+	AGV_Position_Go(150, 2250, 0);
 }
