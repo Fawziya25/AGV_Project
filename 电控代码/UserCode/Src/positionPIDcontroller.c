@@ -167,7 +167,6 @@ void AGV_Correct(uint32_t timeout_ms)
 
     while((HAL_GetTick() - start_time) < timeout_ms)
     {
-        //Dbg_ShowScreen(0);             /* 调试:显示当前帧数据(原 Cam_OLED_Show,已并入 test.c) */
         Cam_Service();       /* 接收链自愈：错误中止后重挂DMA，否则cam_receive_flag永不刷新 */
         Dbg_Service();       /* 调试服务:到点刷OLED + 响应A8暂停(本循环不走HAL_Delay,得手工调) */
 

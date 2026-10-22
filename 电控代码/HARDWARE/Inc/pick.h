@@ -39,6 +39,8 @@
 #define PICK_TURN_ANG_C   270.0f
 
 #define POS_OBSERVE_RING (180.0f, 140.0f,  18.0f)//观察圆环位置
+#define POS_OBSERVE_RING_PLUS (180.0f, 5.0f,  18.0f)//观察三个圆环 对角度修正的时候使用
+
 #define POS_1        (218.0f, 141.0f,  83.0f)//圆环左边
 #define POS_2        (180.0f, 141.0f,  18.0f)//圆环中间
 #define POS_3        (138.0f, 141.0f,  83.0f)//圆环右边

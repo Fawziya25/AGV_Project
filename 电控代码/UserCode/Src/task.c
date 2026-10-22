@@ -88,6 +88,7 @@ void TaskProc(void)
             break;
 //===================================到达粗加工区=================================
         case Place1:
+            //Place_Correct_PLUS();/*粗调*/
             Place_Correct();
             Place_ROUGH();
             TaskCode = Pick2;
@@ -102,7 +103,7 @@ void TaskProc(void)
             break;
 //===================================到达暂存区==================================
         case Place2:
-            if(RerunFlag == 0) Place_Correct();
+            if(RerunFlag == 0) {/*Place_Correct_PLUS();*/Place_Correct();}
             else               Place_TEMP_Correct();
             Place_TEMP();
             TaskCode = (RerunFlag == 0) ? Move4 : GoBack;

@@ -108,6 +108,12 @@ void Pick_RAW_PLUS(void);
    Place_ROUGH 之前调用一次，Place_ROUGH 自己不再做这一步。 */
 void Place_Correct(void);
 
+/* 粗加工区对正【PLUS 版，当前未接入 task.c】：在 Place_Correct 的基础上多一段角度闭环。
+   摆 POS_OBSERVE_RING_PLUS → 开爪 → 0x04 粗修正 1s → 0x06 角度修正(航向 PID) → 收爪。
+   适合同一轮里三个圆环都在视野内、但车头相对圆环排布有偏角的场合。
+   角度符号(`PLACE_CORRECT_PLUS_ANGLE_SGN`)与相机约定有关，实车越修越歪就取反。 */
+void Place_Correct_PLUS(void);
+
 /* 粗加工区放置（不含视觉修正，那一步在 Place_Correct 里）：把车上三个槽
    依次放到二维码给的圆环上。 */
 void Place_ROUGH(void);

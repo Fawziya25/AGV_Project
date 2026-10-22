@@ -5,6 +5,7 @@
 0x03: [AA 03 BB]                    请求三个框内颜色
 0x04: [AA 04 BB]                    请求圆环
 0x05: [AA 05 color BB]           请求color
+0x06: [AA 06 BB]                    请求修正角度
 
 视觉任何状态都循环回发消息
 每次接收后将flag置于0
@@ -15,3 +16,4 @@
 0x03: [AA 03 flag c1 c2 c3 BB]                                  flag=1 等待到框内从无到有， 返回三个框内的颜色  分别为左上 下 右上
 0x04: [AA 04 flag dxH dxL dyH dyL BB]                    flag=num 为圆环编号(或者是识别到圆环)，对dx，dy修正
 0x05: [AA 05 flag dxH dxL dyH dyL BB]                    flag=1 识别到对应颜色 对dx，dy修正
+0x06: [AA 06 flag AngleH AngleL BB]                                         flag=1 已经识别到  对偏离角度进行pid修正

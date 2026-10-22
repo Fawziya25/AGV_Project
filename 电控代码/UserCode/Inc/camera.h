@@ -16,6 +16,7 @@
  *     0x03  AA 03 BB                 请求三个框内颜色
  *     0x04  AA 04 BB                 请求圆环
  *     0x05  AA 05 color BB           请求指定颜色 color
+ *     0x06  AA 06 BB                 请求修正角度
  *
  *   相机 -> 电控（循环回，flag=0 未完成、flag!=0 完成）：
  *     0x00  AA 00 flag BB                     flag 随意
@@ -25,6 +26,8 @@
  *     0x03  AA 03 flag c1 c2 c3 BB            flag=1 三框从无到有
  *     0x04  AA 04 flag dxH dxL dyH dyL BB     flag=圆环编号(1/2/3)，0=未识别
  *     0x05  AA 05 flag dxH dxL dyH dyL BB     flag=1 识别到对应颜色
+ *     0x06  AA 06 flag AngleH AngleL BB       flag=1 已识别到偏离角度
+ *                                             Angle = 有符号 int16(°)，高字节在前
  *
  *   ⚠ 0x02 在 2026-10-16 改过语义：原来报的是"圆盘中心"、flag 只有 0/1，
  *     现在报的是"最近物块"、flag 就是那个物块的颜色号 1~6（见工程根目录的
@@ -35,7 +38,7 @@
  *   dx / dy：有符号 int16，高字节在前
  *   依赖：USART1 + DMA（空闲中断）
  *
- *   请求式 API 的等待分两段（见 camera.c Cam_WaitSettle），0x01~0x05 全走同一条路：
+ *   请求式 API 的等待分两段（见 camera.c Cam_WaitSettle），0x01~0x06 全走同一条路：
  *     第一段 等相机回一帧「第二字节(命令码) == 刚发出去的命令」，确认命令被采用；
  *            每 100ms 没动静就补发一次，10s 超时失败。相机在任何模式下都会持续回数据，
  *            所以"收到帧"不能当握手成功，必须按命令码匹配。
@@ -53,6 +56,7 @@
 #define CAM_CMD_BOXCOLOR    0x03U    /* 请求三框颜色 */
 #define CAM_CMD_RING        0x04U    /* 请求圆环 */
 #define CAM_CMD_COLOR       0x05U    /* 请求指定颜色 */
+#define CAM_CMD_ANGLE       0x06U    /* 请求修正角度 */
 
 /* 请求式等待【第二段】(等相机回 flag!=0)的等待上限，20s。
    只有 camera.c 的 Cam_WaitSettle() 在用，**不是参数** —— 调用方(Cam_SwitchTo)不用传。
@@ -79,6 +83,9 @@ extern volatile uint8_t cam_mode;
 extern volatile uint8_t cam_receive_flag;
 /* 0x03 帧回报的三个框内颜色（c1 c2 c3） */
 extern volatile uint8_t box_color[3];
+/* 0x06 帧回报的偏离角度(°)，有符号 int16；cam_flag==0 时无意义，不该拿去闭环。
+   符号与相机侧的约定有关（哪边为正），实车发现越修越歪就取反用（见 Place_Correct_PLUS）。 */
+extern volatile int16_t cam_angle;
 
 /* OpenMV 启动成功标志：1=Cam_Init 已建立链路 */
 extern volatile uint8_t cam_start;
@@ -103,10 +110,10 @@ void Cam_SendIdle(void);
 void Cam_SendCommand(uint8_t cmd, const uint8_t *payload, uint8_t plen);
 
 /* ========================== 统一切换相机模式 ==========================
-   六个模式就一条命令，参数只有模式号；带参数的两条(0x01 / 0x05)由本函数自己
+   七个模式就一条命令，参数只有模式号；带参数的两条(0x01 / 0x05)由本函数自己
    从任务码里取，调用方不用管 —— 原来那五个 Cam_RequestXxx() 已删掉。
 
-   @param mode 直接写命令码的**八进制字面量**：01/02/03/04/05（= 十六进制 0x01~0x05）。
+   @param mode 直接写命令码的**八进制字面量**：01/02/03/04/05/06（= 十六进制 0x01~0x06）。
           ⚠ 必须带前导 0 —— 写 2 也是同一个值，但 010 这种会被当八进制 8，看着像笔误；
             而 08 / 09 根本不是合法字面量，编译器直接报错。不用 CAM_CMD_xxx 宏，就是为了
             调用处一眼能看出发的是几号命令。
@@ -114,6 +121,7 @@ void Cam_SendCommand(uint8_t cmd, const uint8_t *payload, uint8_t plen);
    **没有出参**：结果全在全局量里，函数返回后直接读：
      dx / dy          0x02 / 0x04 / 0x05 的位置偏差(px)
      box_color[0..2]  0x03 的三个框内颜色
+     cam_angle        0x06 的偏离角度(°)，有符号
      cam_flag         这条命令的 flag：0x02 时是最近物块的颜色号(1~6)、
                       0x04 时是圆环编号(1/2/3)
 

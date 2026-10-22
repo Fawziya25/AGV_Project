@@ -21,6 +21,7 @@
 #define CAM_LEN_BOXCOLOR  7U     /* AA 03 flag c1 c2 c3 BB */
 #define CAM_LEN_RING      8U     /* AA 04 flag dxH dxL dyH dyL BB */
 #define CAM_LEN_COLOR     8U     /* AA 05 flag dxH dxL dyH dyL BB */
+#define CAM_LEN_ANGLE     5U     /* AA 06 flag AngleH AngleL BB */
 
 #define CAM_RAW_LEN   64U    /* DMA 单次接收缓冲 */
 #define CAM_ACC_LEN   96U    /* 字节流累积缓冲：一次中断可能收到半帧或多个帧 */
@@ -36,6 +37,7 @@ volatile uint8_t cam_flag = 0;          /* 最近一帧的 flag 字段；0=没�
 volatile uint8_t cam_mode = 0xFF;       /* 最近一帧的命令码 */
 volatile uint8_t cam_receive_flag = 0;  /* 1=有新帧待读，读取方清零 */
 volatile uint8_t box_color[3] = {0, 0, 0};   /* 0x03 的三个框内颜色 */
+volatile int16_t cam_angle = 0;         /* 0x06 的偏离角度(°)，仅 0x06 更新 */
 
 volatile uint8_t cam_start = 0;
 
@@ -118,6 +120,7 @@ static int16_t Cam_FrameLen(uint8_t cmd)
         case CAM_CMD_BOXCOLOR: return (int16_t)CAM_LEN_BOXCOLOR;
         case CAM_CMD_RING:     return (int16_t)CAM_LEN_RING;
         case CAM_CMD_COLOR:    return (int16_t)CAM_LEN_COLOR;
+        case CAM_CMD_ANGLE:    return (int16_t)CAM_LEN_ANGLE;
         default:              return -1;
     }
 }
@@ -167,6 +170,10 @@ static void Cam_DecodeFrame(const uint8_t *f)
         case CAM_CMD_COLOR:  /* AA 05 flag dxH dxL dyH dyL BB —— 与 0x02 同构 */
             dx = (int16_t)(((uint16_t)f[3] << 8) | (uint16_t)f[4]);
             dy = (int16_t)(((uint16_t)f[5] << 8) | (uint16_t)f[6]);
+            break;
+
+        case CAM_CMD_ANGLE:  /* AA 06 flag AngleH AngleL BB */
+            cam_angle = (int16_t)(((uint16_t)f[3] << 8) | (uint16_t)f[4]);
             break;
 
         case CAM_CMD_BOXCOLOR:   /* AA 03 flag c1 c2 c3 BB */
@@ -257,7 +264,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
 /**
  * @brief 发一条请求命令，两段式等待：先等相机"回报本命令"，再等它"回 flag!=0"
- * @param cmd        命令码，0x01 ~ 0x05 这些请求式命令都走这里
+ * @param cmd        命令码，0x01 ~ 0x06 这些请求式命令都走这里
  * @param payload    参数字节首地址：0x01 传三色 c1c2c3、0x05 传 color、其余传 NULL
  * @param plen       参数字节数 0~3
  * @retval 1 两段都完成；0 任一段超时
@@ -345,7 +352,7 @@ void Cam_SendCommand(uint8_t cmd, const uint8_t *payload, uint8_t plen)
  * @brief 统一切换相机模式：发一条命令 + 阻塞等它干完。
  *        原来那五个 Cam_RequestXxx()（TaskCode/Disc/BoxColor/Ring/Color）已经删掉，
  *        出参一律没有 —— 结果全在全局量 dx/dy/box_color[]/cam_flag 里，返回后直接读。
- * @param mode 命令码 0x00~0x05，调用处直接写八进制字面量 01/02/03/04/05（写 2 也行，
+ * @param mode 命令码 0x00~0x06，调用处直接写八进制字面量 01/02/03/04/05/06（写 2 也行，
  *             是同一个值；但 08/09 不是合法字面量）。带参数的两条自己取参数，调用方不用管：
  *             0x01 任务码   → 直接用本轮扫出来的 Pick_Color1[0..2]
  *             0x05 指定颜色 → 按任务码算出"第一轮放进 2 号环的那一块的颜色"
@@ -379,7 +386,7 @@ uint8_t Cam_SwitchTo(uint8_t mode)
             plen = 1;
             break;
         }
-        default:                        /* 0x00 / 0x02 / 0x03 / 0x04 都不带参数 */
+        default:                        /* 0x00 / 0x02 / 0x03 / 0x04 / 0x06 都不带参数 */
             plen = 0;
             break;
     }
@@ -405,6 +412,7 @@ void Cam_Init(void)
     cam_flag         = 0;
     dx = 0;
     dy = 0;
+    cam_angle = 0;
     cam_start     = 0;
 
     Cam_StartRx();

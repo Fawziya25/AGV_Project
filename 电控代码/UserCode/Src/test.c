@@ -593,24 +593,25 @@ static void Test_Place_Ring(void)
 
 static void Test_Camera(void)
 {
-    /* 命令表：0x00~0x05 六条全发。
+    /* 命令表：0x00~0x06 七条全发。
        带参数的只有 0x01(三色) 和 0x05(单色)，其余都是无参数帧。 */
-    static const uint8_t cmd_tbl[6] = { 0x00U, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U };
-    static const uint8_t plen_tbl[6] = { 0U, 3U, 0U, 0U, 0U, 1U };
-    static const uint8_t arg_tbl[6][3] = {
+    static const uint8_t cmd_tbl[7] = { 0x00U, 0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U };
+    static const uint8_t plen_tbl[7] = { 0U, 3U, 0U, 0U, 0U, 1U, 0U };
+    static const uint8_t arg_tbl[7][3] = {
         { 0U,   0U, 0U },   /* 0x00 空闲 —— 无参数 */
         { 1U,   2U, 3U },   /* 0x01 任务码 —— 三色填 1 2 3 */
-        { 0U,   0U, 0U },   /* 0x02 圆盘中心 —— 无参数 */
+        { 0U,   0U, 0U },   /* 0x02 最近物块 —— 无参数 */
         { 0U,   0U, 0U },   /* 0x03 三框颜色 —— 无参数 */
         { 0U,   0U, 0U },   /* 0x04 圆环 —— 无参数 */
         { 2U,   0U, 0U },   /* 0x05 指定颜色 —— 填颜色号 2，只用第一个字节 */
+        { 0U,   0U, 0U },   /* 0x06 修正角度 —— 无参数 */
     };
 
     Cam_Init();           /* 等相机启动(5秒超时)，并起 DMA 接收 */
 
     for(;;)
     {
-        for(uint8_t i = 0U; i < 6U; i++)
+        for(uint8_t i = 0U; i < 7U; i++)
         {
             Cam_SendCommand(cmd_tbl[i], arg_tbl[i], plen_tbl[i]);
 
