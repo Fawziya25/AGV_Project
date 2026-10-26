@@ -17,16 +17,16 @@
    `Pick_JumpTo POS_RUN;` 一起报 "expected ';' before 'POS_RUN'"。
    值是按原样补回来的(90,10,10)，**没跟着这次调姿重新对过** —— 如果 POS_START
    那些数也要动，这条一起看。 */
-#define POS_OBSERVE_RAW_PLUS   (180.0f, 3.0f,  100.0f)//观察原料上的物料块位置
+#define POS_OBSERVE_RAW_PLUS   (180.0f, 3.0f,  95.0f)//观察原料上的物料块位置
 
 #define POS_OBSERVE_TEMP       (180.0f, 80.0f,  18.0f)//观察暂存区上物料块位置
 #define POS_OBSERVE_RAW   (180.0f, 8.0f,  2.0f )//原料区抓取位置下
 
-#define POS_RAW_A       (180.0f, 50.0f,  110.0f )//原料区抓取位置左前
+#define POS_RAW_A       (180.0f, 50.0f,  125.0f )//原料区抓取位置左前
 #define POS_RAW_B       (180.0f, 50.0f,  2.0f )//原料区抓取位置下
-#define POS_RAW_C       (180.0f, 50.0f,  110.0f )//原料区抓取位置右前
+#define POS_RAW_C       (180.0f, 50.0f,  125.0f )//原料区抓取位置右前
 
-#define POS_CAR        (55.0f,   22.0f,  18.0f)//车上放置位置(Pick_RAW 三次抓取都放这一点)
+#define POS_CAR        (55.0f,   24.0f,  18.0f)//车上放置位置(Pick_RAW 三次抓取都放这一点)
 
 /* 车上三个槽位不是一个臂位姿三套坐标，而是「同一个 POS_CAR + 转盘舵机转角」：
    30°=A 槽, 150°=B 槽, 270°=C 槽(上电初值 0°=A)。用 Pick_TurnTable_Set(slot) 选。
@@ -58,7 +58,7 @@
      三个数都远小于 180，不会撞上 Servo_SetAngle 里 `> maxAngle` 那句钳位，
      不存在被静默削角的问题。详见 servo.c 夹爪配置区那段。 */
 #define PICK_OBSERVE    20.0f   /* 张开观察 */
-#define PICK_GRAB      100.0f   /* 抓住物料 */
+#define PICK_GRAB      103.0f   /* 抓住物料 */
 #define PICK_RELEASE   65.0f   /* 放开物料 */
 
 #include <stdint.h>

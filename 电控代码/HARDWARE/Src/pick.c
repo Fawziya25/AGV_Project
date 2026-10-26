@@ -26,13 +26,13 @@
 /* 各电机速度/加速度(RPM)：可分别调节 */
 #define PICK_MOTOR_Z_VEL    1000   /* 高度电机速度；注意是原值100的10倍，不是注释里写的2倍 */
 #define PICK_MOTOR_Z_ACC    230  /* 高度电机加速度 */
-#define PICK_MOTOR_R_VEL    100   /* 半径电机速度，保持原样 */
-#define PICK_MOTOR_R_ACC    20    /* 半径电机加速度 */
-#define PICK_MOTOR_DONE_TMO 2000  /* 电机回执等待超时(ms) */
+#define PICK_MOTOR_R_VEL    150   /* 半径电机速度，保持原样 */
+#define PICK_MOTOR_R_ACC    30    /* 半径电机加速度 */
+#define PICK_MOTOR_DONE_TMO 1000  /* 电机回执等待超时(ms) */
 #define PICK_SAFE_HEIGHT_MM 2.0f  /* 安全高度(mm)：每次动作先升到此高度再水平移动+转向 */
 
 /* ---- 失败恢复参数 ---- */
-#define PICK_MOTOR_RETRY_TMO    2000  /* 失败后降速重试的等待超时(ms) */
+#define PICK_MOTOR_RETRY_TMO    1000  /* 失败后降速重试的等待超时(ms) */
 #define PICK_READ_POS_TMO        300  /* 读 S_CPOS 实时位置的超时(ms) */
 #define PICK_MOTOR_Z_RETRY_VEL   300  /* 高度轴重试速度，低于正常值，减小顶限位冲击 */
 #define PICK_MOTOR_Z_RETRY_ACC    30
@@ -94,7 +94,7 @@ volatile int32_t  Pick_Diag_LastCpos   = 0;    /* 最近一次读回的 Z 位置
 /* 半径电机(地址6) 行程配置: 一圈=100mm, 一圈3200脉冲 → 32脉冲/mm */
 #define PICK_MOTOR_R_MM_PER_REV   100.0f  /* 一圈对应 100mm */
 #define PICK_MOTOR_R_PUL_PER_REV  3200    /* 一圈脉冲数 */
-#define PICK_MOTOR_R_MAX_MM       85.0f   /* 半径行程上限 0~85mm */
+#define PICK_MOTOR_R_MAX_MM       200.0f   /* 半径行程上限 0~200mm */
 #define PICK_MOTOR_R_MM_PUL       ((int32_t)(PICK_MOTOR_R_PUL_PER_REV / PICK_MOTOR_R_MM_PER_REV)) /* 32脉冲/mm */
 /* ======================================================= */
 

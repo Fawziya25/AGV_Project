@@ -99,9 +99,23 @@ void Pick_RAW_B(uint8_t slot);
 void Pick_RAW_C(uint8_t slot);
 
 /* 原料区取料（备用路线，当前未调用）：摆 POS_OBSERVE_RAW_PLUS 读一次三框颜色(0x03)，
-   按任务码顺序把每一色分派给 Pick_RAW_A/B/C，并按 (初始格 + 已抓块数) % 3 推算转盘走格。
+   按 (初始格 + 3 − 已抓块数) % 3 一次算出整条路线，再查表分派给下面六个函数。
    切换方法见 pick_task.c 里它的注释。 */
 void Pick_RAW_PLUS(void);
+
+/* 六种固定抓取路线（名称 = 三次抓取实际去的框，槽按 0→1→2 依次放）：
+   每抓 A 位或 C 位的一块，都要先把底盘挪到该框偏移位（纵向 + 横向，和
+   Pick_RAW_A/Pick_RAW_C 的去程同一套），抓完再挪走；抓 B 位那块底盘不动。
+   AAA/BBB/CCC 是同一框连抓三次（前两者仍要先到位，到位后三次之间不动）；
+   ABC = A→B→C；BCA = B→C→A；CAB = C→A→B（C↔A 两框横向偏移相同，只有纵向移动）。
+   每条路线收工时都把底盘放回基准位，后续导航基准不漂。
+   一般由 Pick_RAW_PLUS 分派，不用直接调。 */
+void Pick_RAW_AAA(void);
+void Pick_RAW_BBB(void);
+void Pick_RAW_CCC(void);
+void Pick_RAW_ABC(void);
+void Pick_RAW_BCA(void);
+void Pick_RAW_CAB(void);
 
 /* 粗加工区放置前的视觉对正：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct(30000) → 收爪。
    拿不到偏差就不修正（免得用旧 dx/dy 把车带偏）。由 task.c 的 case Place1 在

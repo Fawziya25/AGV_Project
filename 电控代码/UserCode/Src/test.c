@@ -533,11 +533,11 @@ static void Test_Pick_Raw(void)
     
     QRcode_Task(); 
     Pick_Correct();
+    //Pick_RAW();
     Pick_RAW_PLUS();
     //Place_Correct();
     //Place_ROUGH();
 
-    Pick_JumpTo POS_DEFAULT;  /* 摆臂到离开位，免得挡着相机 */
 }
 
 
@@ -882,7 +882,7 @@ void Test_Switch(void)
 
     Test_WaitStartKey();
     Pick_Axis_Init();
-    switch(1)
+    switch(6)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正
