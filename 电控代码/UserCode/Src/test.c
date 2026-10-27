@@ -535,6 +535,9 @@ static void Test_Pick_Raw(void)
     Pick_Correct();
     //Pick_RAW();
     Pick_RAW_PLUS();
+    //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
+            // Place_Correct_Low();
+            // Place_ROUGH();
     //Place_Correct();
     //Place_ROUGH();
 
@@ -543,14 +546,14 @@ static void Test_Pick_Raw(void)
 
 static void Test_Pick_Place(void)
 {
-    Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */
-    Place_Correct();
+    Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
+    Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
+    HWT101_Init(&huart5); /* 初始化HWT101 */
+     QRcode_Task();
+    Place_Correct_High();   /* 粗调 */
+    Place_Correct_Angle();  /* 角度 */
+    Place_Correct_Low();
     Place_ROUGH();
-    GRAB_AND_PLACE_TO_RING_SLOT(0, 1);   /* 车上 1 槽 → 圆环 1 号 */
-    GRAB_AND_PLACE_TO_RING_SLOT(1, 2);   /* 车上 2 槽 → 圆环 2 号 */
-    GRAB_AND_PLACE_TO_RING_SLOT(2, 3);   /* 车上 3 槽 → 圆环 3 号 */
-
-    Pick_JumpTo POS_DEFAULT;  /* 摆臂到离开位，免得挡着相机 */
 }
 
 /* 模式 11：最简单的放置过程 —— 只验"车上取料位 → 三个圆环"这条动作链，
@@ -882,7 +885,7 @@ void Test_Switch(void)
 
     Test_WaitStartKey();
     Pick_Axis_Init();
-    switch(6)
+    switch(5)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正

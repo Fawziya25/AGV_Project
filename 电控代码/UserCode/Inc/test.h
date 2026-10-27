@@ -114,7 +114,7 @@
  * 测路径的：cmake ... -DCMAKE_C_FLAGS="-DTEST_MODE=1"。不传就按下面的默认值。
  */
 #ifndef TEST_MODE
-#define TEST_MODE   1      /* 2026-10-14：调原料→车上槽位(模式 4)，测完改回 0 */
+#define TEST_MODE   0      /* 2026-10-14：调原料→车上槽位(模式 4)，测完改回 0 */
 #endif
 
 #ifndef DBG_ENABLE

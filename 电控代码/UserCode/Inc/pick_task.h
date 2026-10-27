@@ -98,7 +98,7 @@ void Pick_RAW_A(uint8_t slot);
 void Pick_RAW_B(uint8_t slot);
 void Pick_RAW_C(uint8_t slot);
 
-/* 原料区取料（备用路线，当前未调用）：摆 POS_OBSERVE_RAW_PLUS 读一次三框颜色(0x03)，
+/* 原料区取料（备用路线，当前未调用）：摆 POS_OBSERVE_RAW_CENTER 读一次三框颜色(0x03)，
    按 (初始格 + 3 − 已抓块数) % 3 一次算出整条路线，再查表分派给下面六个函数。
    切换方法见 pick_task.c 里它的注释。 */
 void Pick_RAW_PLUS(void);
@@ -117,24 +117,30 @@ void Pick_RAW_ABC(void);
 void Pick_RAW_BCA(void);
 void Pick_RAW_CAB(void);
 
-/* 粗加工区放置前的视觉对正：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct(30000) → 收爪。
-   拿不到偏差就不修正（免得用旧 dx/dy 把车带偏）。由 task.c 的 case Place1 在
-   Place_ROUGH 之前调用一次，Place_ROUGH 自己不再做这一步。 */
-void Place_Correct(void);
+/* 粗加工区放置前的视觉对正，拆成三步，固定顺序 High → Angle → Low → Place_ROUGH()：
 
-/* 粗加工区对正【PLUS 版，当前未接入 task.c】：在 Place_Correct 的基础上多一段角度闭环。
-   摆 POS_OBSERVE_RING_PLUS → 开爪 → 0x04 粗修正 1s → 0x06 角度修正(航向 PID) → 收爪。
-   适合同一轮里三个圆环都在视野内、但车头相对圆环排布有偏角的场合。
-   角度符号(`PLACE_CORRECT_PLUS_ANGLE_SGN`)与相机约定有关，实车越修越歪就取反。 */
-void Place_Correct_PLUS(void);
+   Place_Correct_High()  摆高位观察位 POS_OBSERVE_RING_HIGH → 开爪 → 0x04 圆环2
+                         粗修正(1s)。**不收爪**，留给后面的角度步继续用同一个位姿。
+   Place_Correct_Angle() 沿车头方向挪 7cm（三个圆环在视野里排得更开，角度更准）
+                         → 0x06 角度闭环（反复读数 + SetYaw，进死区为止）
+                         → 记基准航向 a1 → 退回原位 → 航向复位 a1。
+   Place_Correct_Low()   摆低位观察位 POS_OBSERVE_RING_LOW → 开爪 → 0x04 细修正(30s)
+                         → 收爪。
 
-/* 粗加工区放置（不含视觉修正，那一步在 Place_Correct 里）：把车上三个槽
+   拿不到视觉结果就跳过对应那一段（免得用旧 dx/dy/cam_angle 把车带偏）。
+   Place_ROUGH 自己不做这一步。Place_Correct_Low 也可以单独调（第二轮暂存区那条路）。
+   角度符号(`PLACE_CORRECT_ANGLE_SGN`)与相机约定有关，实车越修越歪就取反。 */
+void Place_Correct_High(void);
+void Place_Correct_Angle(void);
+void Place_Correct_Low(void);
+
+/* 粗加工区放置（不含视觉修正，那一步在 Place_Correct_* 里）：把车上三个槽
    依次放到二维码给的圆环上。 */
 void Place_ROUGH(void);
 void Pick_ROUGH(void);
 void Place_TEMP(void);
-/* 暂存区放置前的视觉对正【第二轮】：摆 POS_OBSERVE_TEMP → 开爪 → 0x05 指定颜色 → AGV_Correct(5000) → 收爪。
-   第一轮别调它 —— 第一轮的观察位和粗加工区同一处，复用 Place_Correct()。
+/* 暂存区放置前的视觉对正【第二轮】：摆 POS_OBSERVE_RING_MIDDLE → 开爪 → 0x05 指定颜色 → AGV_Correct(5000) → 收爪。
+   第一轮别调它 —— 第一轮的观察位和粗加工区同一处，复用 Place_Correct_Low()。
    task.c 的 case Place2 按 RerunFlag 二选一。 */
 void Place_TEMP_Correct(void);
 

@@ -13,7 +13,7 @@
  * "在取料位一直等，等到这一色转到取料位上才抓"：
  *   Pick_Correct()   摆 POS_RAW_B → 开爪 → 0x02 → AGV_Correct(5000) → 收爪
  *   Pick_RAW()       摆 POS_RAW_B → 开爪 → 死等 0x02 的 flag == Pick_Color[i] → 抓
- *   Pick_RAW_PLUS()  备用路线：摆 POS_OBSERVE_RAW_PLUS 读一次 0x03 三框颜色，
+ *   Pick_RAW_PLUS()  备用路线：摆 POS_OBSERVE_RAW_CENTER 读一次 0x03 三框颜色，
  *                    一次算出整条路线，分派给六个固定函数之一
  *                    （Pick_RAW_AAA/BBB/CCC/ABC/BCA/CAB）：抓 A/C 位配底盘移动
  *                    （同 Pick_RAW_A/C 的去程/归位顺序），同框连抓的三次之间底盘不动，
@@ -22,14 +22,17 @@
  *
  * ── 2026-10-16 放置侧同样拆开 ──────────────────────────────────────
  * 照原料区那套分工，把视觉对正从两个 Place_xxx 里摘出来，只留下放置动作：
- *   Place_Correct()        摆圆环观察位 → 开爪 → 0x04 → AGV_Correct(30000) → 收爪
+ *   Place_Correct_High()   高位观察位 → 开爪 → 0x04 圆环2 粗修正(1s)，不收爪
+ *   Place_Correct_Angle()  挪开 7cm → 0x06 角度闭环 → 记基准 a1 → 退回 → 航向复位 a1
+ *   Place_Correct_Low()    低位观察位 → 0x04 细修正(30s) → 收爪
  *   Place_ROUGH()          只管放：车上三槽依次放到 Place_Color[] 指定的圆环
  *   Place_TEMP_Correct()   摆暂存区观察位 → 开爪 → 0x05 → AGV_Correct(5000) → 收爪
  *   Place_TEMP()           只管放：第二轮同色同环码到高位
  * 上层 task.c：
- *   case Place1  连着调 Place_Correct() + Place_ROUGH()
- *   case Place2  按 RerunFlag 选对正函数（第一圈观察位就在圆环区，复用 Place_Correct），
- *                再调 Place_TEMP()
+ *   case Place1  Place_Correct_High() → Place_Correct_Angle() → Place_Correct_Low()
+ *                → Place_ROUGH()
+ *   case Place2  按 RerunFlag 选对正函数（第一圈观察位就在圆环区，直接用
+ *                Place_Correct_Low），再调 Place_TEMP()
  * 0x04 / 0x05 语义都没变，所以这两次拆分都只是搬家，没有逻辑改动。
  *
  * 与旧版的对应关系：
@@ -137,7 +140,7 @@ static void PlaceToRing(uint8_t slot, uint8_t ring)
  */
 void Pick_Correct(void)
 {
-    Pick_JumpTo POS_OBSERVE_RAW;
+    Pick_JumpTo POS_OBSERVE_RAW_A;
     Pick_Gripper_Observe();         /* 修正期间张开，别挡住相机 */
     if(Cam_SwitchTo(02)&&cam_flag!=0)  /* 偏差落到全局 dx/dy */
     {
@@ -149,7 +152,7 @@ void Pick_Correct(void)
 /**
  * @brief 原料区取料（当前路线）：在取料位等，等到取料位上那一块就是要抓的颜色才下手
  * @note  流程（严格按任务码顺序，i = 0 → 1 → 2）：
- *        1) 摆回 POS_OBSERVE_RAW、开爪（别挡住相机）；
+ *        1) 摆回 POS_OBSERVE_RAW_A、开爪（别挡住相机）；
  *        2) 反复发 0x02，相机回的 flag 就是"取料位上最近物块的颜色编号(1~6)"：
  *             拿到的颜色 == Pick_Color[i]  → 停，下去抓；
  *             不等（含 0x02 超时、物块还没静止）→ 接着发，**一直等，没有上限**。
@@ -174,7 +177,7 @@ void Pick_RAW(void)
 
     for(uint8_t i = 0; i < 3; i++)
     {
-        Pick_JumpTo POS_OBSERVE_RAW;
+        Pick_JumpTo POS_OBSERVE_RAW_A;
         for(;;)
         {
             if(Cam_SwitchTo(02) && (cam_flag == Pick_Color[i]))
@@ -356,13 +359,21 @@ static void Raw_PickAt(RawBox box, uint8_t slot)
    Raw_Chassis_Goto 的注释，与 Pick_RAW_A/C 的去程、归位一致）。
    槽位固定按 0→1→2 先后放，与任务码第 i 色对应。
    进函数时夹爪停在 Pick_RAW_PLUS 摆的 observe 位；每抓完一块停在 release
-   位，可以直接下探下一块（见 Raw_PickAt 注释）。 */
+   位，可以直接下探下一块（见 Raw_PickAt 注释）。
+
+   同框连抓(AAA/BBB/CCC)每抓完一块停 PICK_RAW_SAMEBOX_HOLD_MS(700ms)：
+   让料块在车上槽里落稳、夹爪松到位，再去转盘换下一个槽 —— 连抓时转盘马上
+   就要转，不等这一下容易把刚放下去的料拨歪。第三块抓完后面没有换槽动作，
+   就不用停了（省 700ms）。 */
+#define PICK_RAW_SAMEBOX_HOLD_MS   700U
 
 void Pick_RAW_AAA(void)     /* 三次都抓 A 框 */
 {
     Raw_Chassis_Goto(RAW_BOX_B, RAW_BOX_A);  /* 底盘去 A 位：先纵向、后横向 */
     Raw_PickAt(RAW_BOX_A, 0);
+    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);     /* 料块落稳再抓下一块 */
     Raw_PickAt(RAW_BOX_A, 1);                /* 同框：转盘已把下一块送到 A，底盘不动 */
+    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
     Raw_PickAt(RAW_BOX_A, 2);
     Raw_Chassis_Goto(RAW_BOX_A, RAW_BOX_B);  /* 归位：先横向、后纵向 */
 }
@@ -370,7 +381,9 @@ void Pick_RAW_AAA(void)     /* 三次都抓 A 框 */
 void Pick_RAW_BBB(void)     /* 三次都抓 B 框：B 就在车头正前方，底盘全程不动 */
 {
     Raw_PickAt(RAW_BOX_B, 0);
+    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
     Raw_PickAt(RAW_BOX_B, 1);
+    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
     Raw_PickAt(RAW_BOX_B, 2);
 }
 
@@ -378,7 +391,9 @@ void Pick_RAW_CCC(void)     /* 三次都抓 C 框 */
 {
     Raw_Chassis_Goto(RAW_BOX_B, RAW_BOX_C);  /* 底盘去 C 位：先纵向、后横向 */
     Raw_PickAt(RAW_BOX_C, 0);
+    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
     Raw_PickAt(RAW_BOX_C, 1);                /* 同框：底盘不动 */
+    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
     Raw_PickAt(RAW_BOX_C, 2);
     Raw_Chassis_Goto(RAW_BOX_C, RAW_BOX_B);  /* 归位：先横向、后纵向 */
 }
@@ -417,7 +432,7 @@ void Pick_RAW_CAB(void)     /* C → A → B */
 /**
  * @brief 原料区取料（备用路线）：读一次三框颜色 → 算出六种固定路线之一 → 交给对应函数
  * @note  流程：
- *        1) 摆 POS_OBSERVE_RAW_PLUS（高位、收臂，不挡相机），张开夹爪；
+ *        1) 摆 POS_OBSERVE_RAW_CENTER（高位、收臂，不挡相机），张开夹爪；
  *        2) **只问一次** 0x03，拿到三个框的初始颜色，下标 0/1/2 = A/B/C 框；
  *        3) 对任务码第 i 个颜色，算出它**现在**该去哪个框抓：
  *             在该颜色初始所在格上，减去已经抓走的 i 块（转盘索引 −1），
@@ -446,7 +461,7 @@ void Pick_RAW_PLUS(void)
     uint8_t  box[3];                    /* 开局读一次的三框颜色: 0=A 1=B 2=C */
     uint8_t  seq[3];                    /* 第 i 块实际去哪个框：1=A 2=B 3=C */
 
-    Pick_JumpTo POS_OBSERVE_RAW_PLUS;   /* 要看清三个框，得摆到观察位 */
+    Pick_JumpTo POS_OBSERVE_RAW_CENTER;   /* 要看清三个框，得摆到观察位 */
     Pick_Gripper_Observe();             /* 张开，别挡住相机 */
     HAL_Delay(2000);                    /* 等相机输出稳定(上电/切模式后头几帧不可信) */
 
@@ -480,9 +495,13 @@ void Pick_RAW_PLUS(void)
 }
 
 /**
- * @brief 粗加工区放置前的视觉对正：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct 闭环 → 收爪
- * @note  由 task.c 的 `case Place1` 在 Place_ROUGH 之前调用一次，
- *        所以 Place_ROUGH 自己**不再**重复做这一步（和 Pick_Correct / Pick_RAW 一样的分工）。
+ * @brief 粗加工区放置前的视觉对正【低位】：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct 闭环 → 收爪
+ * @note  这是三步对正里的**最后一步**，也负责收爪：
+ *          Place_Correct_High()  → 高位粗修正（不收爪）
+ *          Place_Correct_Angle() → 移位量角度、航向复位（不碰夹爪）
+ *          Place_Correct_Low()   → 本位细修正 + 收爪，然后才 Place_ROUGH()
+ *        也只单独调它（第二轮暂存区 case Place2 就走这一条）。
+ *        所以 Place_ROUGH 自己**不再**重复做视觉这一步（和 Pick_Correct / Pick_RAW 一样的分工）。
  *
  *        请求必须发在"摆到观察位"之后 —— 相机得先看见圆环才有东西可识别。
  *        环号在这段用不上（环号由二维码的 Place_Color[] 给出），只要 dx/dy 落全局给
@@ -491,9 +510,9 @@ void Pick_RAW_PLUS(void)
  *        拿不到偏差就不修正 —— 超时的话 dx/dy 还是上一次留下的旧值，拿它驱轮子
  *        会把车带偏；车本来就停在粗加工区，原地不动、直接进放置反而更安全。
  */
-void Place_Correct(void)
+void Place_Correct_Low(void)
 {
-    Pick_JumpTo POS_OBSERVE_RING;     /* 圆环区观察位：相机 0x04 看的就是这儿 */
+    Pick_JumpTo POS_OBSERVE_RING_LOW;     /* 圆环区观察位：相机 0x04 看的就是这儿 */
     Pick_Gripper_Observe();             /* 修正期间张开，别挡住相机 */
     if(Cam_SwitchTo(04))                /* 偏差落到全局 dx/dy */
     {
@@ -502,56 +521,98 @@ void Place_Correct(void)
     Pick_Gripper_Release();             /* 修正完了，下去放之前收成 release 位 */
 }
 
-/* ---- Place_Correct_PLUS 的两段修正参数 ----
-   第一段 0x04 位置修正只给 1s（所以叫"粗"调）：1s 不够完全对准也没关系，
-   剩下的偏差由第二段的角度修正和放置时臂自己的余量兜住；给太久反而会被
-   单个误识别的圆环带着跑偏。
-   第二段 0x06 角度修正：相机回报"偏离角度"，用 HWT101 的航向 PID 把车头转过
-   这个角。**符号跟相机侧的约定绑定**：实车发现越修越歪，把下面的 +1.0f 改成 -1.0f。 */
-#define PLACE_CORRECT_PLUS_POS_MS      1000U
-#define PLACE_CORRECT_PLUS_ANGLE_SGN   (1.0f)
+/* ---- Place_Correct_High / Place_Correct_Angle 的参数 ----
+   对正拆成三段，顺序固定：High → Angle → Low → Place_ROUGH()。
+     High  高位观察位(POS_OBSERVE_RING_HIGH)上做圆环2 粗修正，1s 就够，
+           给太久反而会被单个误识别的圆环带着跑偏；
+     Angle 此时臂还停在同一个高位观察位，把底盘沿车头方向挪开 7cm 再量角度：
+           挪开后三个圆环在相机视野里排得更开，0x06 报的偏角才准。量完把
+           对正后的航向记成基准 a1，退回原位，最后复位到 a1；
+     Low   回低位观察位(POS_OBSERVE_RING_LOW)做长时间细修正，收爪。
+
+   角度这一段是**闭环**：不是读一次转一次就完事，而是
+     读 0x06 → 按 GAIN 转 SGN*err → 再读 0x06 → ……
+   直到 |err| 进死区(ANGLE_DB)或迭代用完。单次修正会残留一部分误差（相机的
+   偏角本身有噪声、AGV_SetYaw 也有到位死区），叠到放置时就是斜着下爪。
+   `PLACE_CORRECT_ANGLE_SGN` 跟相机侧的约定绑定：实车越修越歪就取反。 */
+#define PLACE_CORRECT_HIGH_MS               1000U   /* 高位圆环2 粗修正时间 */
+#define PLACE_CORRECT_ANGLE_SHIFT_MM        70U     /* 移位距离：沿车头方向 7cm */
+#define PLACE_CORRECT_ANGLE_SHIFT_DIR       1U      /* GoStraight: 1=向前(当作"左")，0=向后(当作"右") */
+#define PLACE_CORRECT_ANGLE_SGN             (-1.0f) /* 实车越修越歪 → 取反（已按实车改成 -1）*/
+#define PLACE_CORRECT_ANGLE_GAIN            (1.0f)  /* 外环比例增益，>1 收敛快但会过冲 */
+#define PLACE_CORRECT_ANGLE_DB              (0.3f)  /* 死区(°)：残差小于它就认为对正了 */
+#define PLACE_CORRECT_ANGLE_ITERS           5U      /* 最多迭代几轮，防止来回摆 */
+#define PLACE_CORRECT_ANGLE_SETTLE_MS       1000U   /* 每轮转完等车停稳、相机出新图 */
 
 /**
- * @brief 粗加工区放置前的视觉对正【PLUS】：位置粗修正 + 角度修正
- * @note  比 Place_Correct() 多一段角度闭环，用在"位置差不多但车头歪"的场合：
- *        1) 摆 POS_OBSERVE_RING_PLUS：高度 5mm 的高位，三个圆环能同时进视野；
- *        2) 开爪 observe，别挡住相机；
- *        3) 0x04 位置修正，只给 PLACE_CORRECT_PLUS_POS_MS(1s) 做粗调；
- *        4) 0x06 角度修正：拿 cam_angle 当目标增量，交给航向 PID 闭环；
- *        5) 收爪回 release 位，后面 Place_ROUGH 直接下手。
+ * @brief 粗加工区对正【第一步·高位粗修正】：摆高位观察位 → 开爪 → 0x04 圆环2 粗修正
+ * @note  只做位置粗修正，**不收爪**：下一步 Place_Correct_Angle 还在同一个观察位
+ *        用相机量角度，夹爪收起来会挡视线。收爪由流程最后一步 Place_Correct_Low 负责。
  *
- *        两段都是"拿到结果才动"：0x04/0x06 超时时 dx/dy/cam_angle 还是旧值，
- *        拿旧值去闭环会把车带歪；车本来就停在粗加工区，原地不动更安全。
- *
- *        ⚠ 角度是**增量**：目标航向 = 当前航向 + cam_angle。
- *        不先记录再恢复 —— 这次修正的目的就是把车摆正，修正结果要留到放置结束。
- *        目前没有地方调它，接入方法同 Place_Correct()：替换 task.c 里的调用即可。
+ *        拿不到 0x04 的结果就不修正 —— 超时时 dx/dy 还是旧值，拿它驱轮子会把车带偏。
  */
-void Place_Correct_PLUS(void)
+void Place_Correct_High(void)
 {
-    Pick_JumpTo POS_OBSERVE_RING_PLUS;
+    Pick_JumpTo POS_OBSERVE_RING_HIGH;  /* 高位：三个圆环同时进视野 */
     Pick_Gripper_Observe();             /* 修正期间张开，别挡住相机 */
 
     if(Cam_SwitchTo(04))                /* 偏差落到全局 dx/dy */
     {
-        AGV_Correct(3000);
+        AGV_Correct(PLACE_CORRECT_HIGH_MS);
     }
+}
 
-    /* ---- 第二段：角度 PID 修正 ---- */
-    if(Cam_SwitchTo(06))                /* 偏离角度落到全局 cam_angle */
+/**
+ * @brief 粗加工区对正【第二步·角度闭环】：挪开 7cm → 0x06 闭环对正 → 记基准 a1
+ *        → 退回原位 → 航向复位 a1
+ * @note  进函数时臂停在 Place_Correct_High 摆好的 POS_OBSERVE_RING_HIGH、夹爪张开，
+ *        本函数不碰臂也不碰夹爪，只动底盘和航向。
+ *
+ *        1) 沿车头方向挪 PLACE_CORRECT_ANGLE_SHIFT_MM(7cm)：三个圆环在视野里
+ *           排得更开，0x06 报的偏角更准；那里不是放料位，所以量完就退回来。
+ *        2) 角度闭环：反复 0x06 → AGV_SetYaw(当前 + SGN*GAIN*err)，直到 |err|
+ *           进 PLACE_CORRECT_ANGLE_DB 或迭代到 ANGLE_ITERS；0x06 超时直接跳出
+ *           （不拿旧值闭环）。
+ *        3) 把对正后的**实际**航向记成基准 a1 —— 不是把上一轮算出来的目标值当
+ *           a1，那样相机噪声会一点点累积。
+ *        4) 退回原位（方向取反），再把航向复位到 a1。
+ *
+ *        ⚠ 角度是**增量**：目标航向 = 当前航向 + SGN*GAIN*cam_angle。
+ */
+void Place_Correct_Angle(void)
+{
+    float a1;
+
+    /* ---- 1) 挪开 7cm，站到角度看得准的位置 ---- */
+    AGV_Position_GoStraight(PLACE_CORRECT_ANGLE_SHIFT_MM, Vel, PLACE_CORRECT_ANGLE_SHIFT_DIR);
+
+    /* ---- 2) 角度闭环：读到误差进死区为止 ---- */
+    for(uint8_t n = 0; n < PLACE_CORRECT_ANGLE_ITERS; n++)
     {
-        HAL_Delay(1000);//等相机稳定
-        float target = ZeroBias_GetYaw()
-                     + PLACE_CORRECT_PLUS_ANGLE_SGN * (float)cam_angle;
-        AGV_SetYaw(target);             /* 阻塞到航向到位，内部±180归一 */
+        float err, abs_err;
+
+        HAL_Delay(PLACE_CORRECT_ANGLE_SETTLE_MS);   /* 车停稳、相机出新图 */
+        if(!Cam_SwitchTo(06)) break;                /* 超时：不拿旧值闭环 */
+
+        err     = PLACE_CORRECT_ANGLE_SGN * (float)cam_angle;
+        abs_err = (err < 0.0f) ? -err : err;
+        if(abs_err < PLACE_CORRECT_ANGLE_DB) break; /* 已经对正，不用再动 */
+
+        AGV_SetYaw(ZeroBias_GetYaw() + PLACE_CORRECT_ANGLE_GAIN * err);
     }
 
-    Pick_Gripper_Release();             /* 修正完了，下去放之前收成 release 位 */
+    /* ---- 3) 把对正后的实际航向记成基准 a1 ---- */
+    a1 = ZeroBias_GetYaw();
+
+    /* ---- 4) 退回原放料位，并把航向复位到 a1 ---- */
+    AGV_Position_GoStraight(PLACE_CORRECT_ANGLE_SHIFT_MM, Vel,
+                            (uint8_t)(PLACE_CORRECT_ANGLE_SHIFT_DIR ^ 1U));
+    AGV_SetYaw(a1);
 }
 
 /**
  * @brief 粗加工区放置：车上三个槽依次放到二维码指定的圆环上
- * @note  视觉对正已搬到 Place_Correct()，这里只管放。
+ * @note  视觉对正已搬到 Place_Correct_High/Angle/Low，这里只管放。
  *
  *        三次放置：A→环, B→环, C→环（取料顺序 A 先出来）
  *        槽号 i 始终是「槽位下标」(0=A,1=B,2=C)，和 Pick_ROUGH / Place_TEMP /
@@ -597,8 +658,8 @@ static uint8_t Place_RingSameAsLastRound(uint8_t slot)
 /**
  * @brief 暂存区放置前的视觉对正【第二轮】：摆暂存区观察位 → 开爪 → 0x05 指定颜色 → AGV_Correct → 收爪
  * @note  第一轮不走这里 —— 暂存区第一轮的观察位和粗加工区是**同一处**、同用 0x04 请求圆环，
- *        直接复用 Place_Correct()。两边由上层在 task.c 的 `case Place2` 里按 RerunFlag 二选一：
- *          RerunFlag == 0 → Place_Correct()
+ *        直接复用 Place_Correct_Low()。两边由上层在 task.c 的 `case Place2` 里按 RerunFlag 二选一：
+ *          RerunFlag == 0 → Place_Correct_Low()
  *          RerunFlag == 1 → Place_TEMP_Correct()
  *
  *        发哪一色不用在这儿算：Cam_SwitchTo(05) 内部按任务码取"第一轮放进 2 号环的
@@ -609,7 +670,7 @@ static uint8_t Place_RingSameAsLastRound(uint8_t slot)
  */
 void Place_TEMP_Correct(void)
 {
-    Pick_JumpTo POS_OBSERVE_TEMP;       /* 暂存区观察位 */
+    Pick_JumpTo POS_OBSERVE_RING_MIDDLE;       /* 暂存区观察位 */
     Pick_Gripper_Observe();             /* 修正期间张开，别挡住相机 */
     Cam_Service();                      /* 原 Place_TEMP 里就有这句接收链自愈，照搬过来 */
     if(Cam_SwitchTo(05))
@@ -621,7 +682,7 @@ void Place_TEMP_Correct(void)
 
 /**
  * @brief 暂存区放置（第二轮码垛）：车上三槽按第一轮的「颜色→环位」关系放到对应环的高位
- * @note  视觉对正已搬走（第一轮 Place_Correct / 第二轮 Place_TEMP_Correct），这里只管放。
+ * @note  视觉对正已搬走（第一轮 Place_Correct_Low / 第二轮 Place_TEMP_Correct），这里只管放。
  *
  *        每轮用哪个颜色数组由 RerunFlag 定：第一轮 Place_Color1，第二轮换成本轮算出的
  *        ring_reuse[]（见下面注释）。

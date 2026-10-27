@@ -84,7 +84,7 @@ extern volatile uint8_t cam_receive_flag;
 /* 0x03 帧回报的三个框内颜色（c1 c2 c3） */
 extern volatile uint8_t box_color[3];
 /* 0x06 帧回报的偏离角度(°)，有符号 int16；cam_flag==0 时无意义，不该拿去闭环。
-   符号与相机侧的约定有关（哪边为正），实车发现越修越歪就取反用（见 Place_Correct_PLUS）。 */
+   符号与相机侧的约定有关（哪边为正），实车发现越修越歪就取反用（见 Place_Correct_Angle）。 */
 extern volatile int16_t cam_angle;
 
 /* OpenMV 启动成功标志：1=Cam_Init 已建立链路 */

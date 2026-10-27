@@ -27,7 +27,6 @@ void AGV_Init(void)
 {
     OLED_Init();
     Dbg_Init();           /* 开TIM7调试服务:周期刷相机数据 + A8短按暂停/继续 */
-    
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     DWT_Init();// 初始化DWT,用于微秒级延时
     AGV_Can_Init(); // 初始化CAN,用于电机通信
@@ -88,8 +87,9 @@ void TaskProc(void)
             break;
 //===================================到达粗加工区=================================
         case Place1:
-            //Place_Correct_PLUS();/*粗调*/
-            Place_Correct();
+            Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+            Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
+            Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
             Place_ROUGH();
             TaskCode = Pick2;
             break;
@@ -103,7 +103,7 @@ void TaskProc(void)
             break;
 //===================================到达暂存区==================================
         case Place2:
-            if(RerunFlag == 0) {/*Place_Correct_PLUS();*/Place_Correct();}
+            if(RerunFlag == 0) {Place_Correct_Low();}
             else               Place_TEMP_Correct();
             Place_TEMP();
             TaskCode = (RerunFlag == 0) ? Move4 : GoBack;

@@ -21,7 +21,7 @@
 #define CAM_LEN_BOXCOLOR  7U     /* AA 03 flag c1 c2 c3 BB */
 #define CAM_LEN_RING      8U     /* AA 04 flag dxH dxL dyH dyL BB */
 #define CAM_LEN_COLOR     8U     /* AA 05 flag dxH dxL dyH dyL BB */
-#define CAM_LEN_ANGLE     5U     /* AA 06 flag AngleH AngleL BB */
+#define CAM_LEN_ANGLE     6U     /* AA 06 flag AngleH AngleL BB */
 
 #define CAM_RAW_LEN   64U    /* DMA 单次接收缓冲 */
 #define CAM_ACC_LEN   96U    /* 字节流累积缓冲：一次中断可能收到半帧或多个帧 */

@@ -10,17 +10,19 @@
    数值照旧是"命令角"，但同一个数现在物理转得更多。改之前看着差不多的姿态，
    改完都会明显偏过去。对位就是把值往小了调（大致按 270/360 = 0.75 的比例算起点）。 */
 //======================角度z    高度z   半径r=====================
-#define POS_DEFAULT  (0.0f,   0.0f,    0.0f)//断电和上电前的复位
 #define POS_START    (90.0f,  10.0f,   0.0f)//车运行前的位置
 #define POS_RUN      (90.0f,  10.0f,   10.0f)//车移动时候位置
 /* ↑ 这行 2026-10-14 被误删过（改上面几个宏时带掉的），全工程 8 处
    `Pick_JumpTo POS_RUN;` 一起报 "expected ';' before 'POS_RUN'"。
    值是按原样补回来的(90,10,10)，**没跟着这次调姿重新对过** —— 如果 POS_START
    那些数也要动，这条一起看。 */
-#define POS_OBSERVE_RAW_PLUS   (180.0f, 3.0f,  95.0f)//观察原料上的物料块位置
 
-#define POS_OBSERVE_TEMP       (180.0f, 80.0f,  18.0f)//观察暂存区上物料块位置
-#define POS_OBSERVE_RAW   (180.0f, 8.0f,  2.0f )//原料区抓取位置下
+
+#define POS_OBSERVE_RAW_A   (180.0f, 8.0f,  2.0f )//原料区抓取位置下 之抓取A位置
+#define POS_OBSERVE_RAW_CENTER   (180.0f, 3.0f,  95.0f)//pick_plus时候的观察位置
+#define POS_OBSERVE_RING_LOW (180.0f, 140.0f,  18.0f)//观察圆环位置 细修正时候
+#define POS_OBSERVE_RING_MIDDLE (180.0f, 80.0f,  18.0f)//观察暂存区上 料块位置
+#define POS_OBSERVE_RING_HIGH (180.0f, 5.0f,  18.0f)//观察三个圆环 粗修正的时候对角度修正的时候使用
 
 #define POS_RAW_A       (180.0f, 50.0f,  125.0f )//原料区抓取位置左前
 #define POS_RAW_B       (180.0f, 50.0f,  2.0f )//原料区抓取位置下
@@ -38,8 +40,8 @@
 #define PICK_TURN_ANG_B   150.0f
 #define PICK_TURN_ANG_C   270.0f
 
-#define POS_OBSERVE_RING (180.0f, 140.0f,  18.0f)//观察圆环位置
-#define POS_OBSERVE_RING_PLUS (180.0f, 5.0f,  18.0f)//观察三个圆环 对角度修正的时候使用
+
+
 
 #define POS_1        (218.0f, 141.0f,  83.0f)//圆环左边
 #define POS_2        (180.0f, 141.0f,  18.0f)//圆环中间
@@ -57,8 +59,8 @@
      另一组参照。
      三个数都远小于 180，不会撞上 Servo_SetAngle 里 `> maxAngle` 那句钳位，
      不存在被静默削角的问题。详见 servo.c 夹爪配置区那段。 */
-#define PICK_OBSERVE    20.0f   /* 张开观察 */
-#define PICK_GRAB      103.0f   /* 抓住物料 */
+#define PICK_OBSERVE    10.0f   /* 张开观察 */
+#define PICK_GRAB      110.0f   /* 抓住物料 */
 #define PICK_RELEASE   65.0f   /* 放开物料 */
 
 #include <stdint.h>
