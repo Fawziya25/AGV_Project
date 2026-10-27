@@ -78,8 +78,5 @@ float ZeroBias_GetYaw(void);  /* 漂移补偿后的航向角(°),替代HWT101_Ge
 float ZeroBias_GetBias(void); /* 当前零偏估计(°/s),供MovingOffset修正 */
 void Yaw_MovingOffsetStart(void);
 void Yaw_MovingOffsetEnd(void);
-/* 清零直行累计跑偏量。给圆弧过弯用：圆弧已用参考航向精确锚定朝向，
-   这里清 0 免得下一次 AGV_Turn 重复补偿（原转弯函数用完也会清 0）。 */
-void Yaw_MovingOffsetClear(void);
 
 #endif

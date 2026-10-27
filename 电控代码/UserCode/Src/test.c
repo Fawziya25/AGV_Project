@@ -463,13 +463,12 @@ static void Test_AGV(void)
     AGV_Position_Init();
     HWT101_Init(&huart5); /* 初始化HWT101 */
 
-    /* 完整流程**跑两遍**（和 task.c 一致），按真实段序连成一条折线：
-         第一遍：起点→2→14→10→22→14      (leg 0,1,2,3,4)
-         第二遍：14→10→22→回出发点         (leg 2,3,5)
-       每段 start == 上一段 goal，整条连续；所有拐点用 R=300mm 圆弧切过去，
-       不经过拐点坐标、不停车原地转。生产流程里段末要干活所以会停，测试这里连续跑。 */
-    static const uint8_t routeTwoLaps[] = { 0U, 1U, 2U, 3U, 4U, 2U, 3U, 5U };
-    AGV_Position_CruiseThroughRoute(routeTwoLaps, (uint8_t)sizeof(routeTwoLaps), 3U);
+    AGV_Position_Depart();       HAL_Delay(2000);
+    AGV_Position_Qcode_to_Raw();   HAL_Delay(2000);
+    AGV_Position_Raw_to_Rough();   HAL_Delay(2000);
+    AGV_Position_Rough_to_Temp();  HAL_Delay(2000);
+    AGV_Position_Temp_to_Raw();    HAL_Delay(2000);
+    AGV_Position_GoBack();
 }
 
 /* ========================== 2 视觉修正测试 ==========================*/

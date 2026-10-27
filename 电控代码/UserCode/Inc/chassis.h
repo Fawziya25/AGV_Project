@@ -43,7 +43,5 @@ void AGV_Position_Raw_to_Rough();
 void AGV_Position_Rough_to_Temp();
 void AGV_Position_Temp_to_Raw();
 void AGV_Position_GoBack();
-/* 多段连成一条折线一次走完（段间拐点也圆角），只跑图时用；R=AGV_ARC_R_MM */
-void AGV_Position_CruiseThroughRoute(const uint8_t *legOrder, uint8_t legCount, uint8_t endDir);
 
 #endif

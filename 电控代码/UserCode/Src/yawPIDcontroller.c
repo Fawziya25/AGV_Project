@@ -388,16 +388,6 @@ void Yaw_MovingOffsetEnd(void)
     yawOffset.MovingOffset += yawOffset.MovingOffsetEnd - yawOffset.MovingOffsetStart;
 }
 
-/*
- * @brief 清零直行累计跑偏量（新增，仅供圆弧过弯用；原转弯函数消费后也是清 0）
- * @note  圆弧结束后朝向已用参考航向精确锚定，这个累计量若不清理，
- *        下一次 AGV_Turn 会把它当"还没补偿过的直行跑偏"再补一次，方向就偏了。
- */
-void Yaw_MovingOffsetClear(void)
-{
-    yawOffset.MovingOffset = 0.0f;
-}
-
 /**
  * @brief 设置目标角速度（车体°/s -> 轮子RPM，四轮同向原地旋转）
  * 
