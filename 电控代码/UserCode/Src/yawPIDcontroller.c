@@ -31,23 +31,6 @@ static float Yaw_Normalize180(float angle)
     return angle;
 }
 
-/**********************************************************
-*** 带门控的陀螺零偏在线估计器
-***
-*** 原理:车体静止时,角速度均值 ≈ 当前零偏 b;
-***      静止窗口内航向读数变化 ≈ 该窗口内累积的纯漂移。
-*** 门控:窗口内任何 |wz| > ZB_RATE_GATE 的样本判定为真实运动
-***      (机械臂/舵机甩动、底盘蠕动),使窗口作废,防止污染估计。
-***
-*** 接线(原型已在 yawPIDcontroller.h 中声明):
-***   ① ZeroBias_Feed():HWT101 驱动每解析到一帧有效角度帧时自动调用,
-***       已移除原TIM7节拍喂入(见 hwt101.c)。
-***   ② ZeroBias_Start()/End():上电 HWT101_ManualCal() 内各调用一次,
-***       只采集一次静止窗口即得零偏(单窗口,直接用均值,无EMA需求)。
-***   ③ ZeroBias_Reset():HWT101_Init() 起始处调用,清估计状态。
-*** 本文件内所有控制读数已改用 ZeroBias_GetYaw() 代替 HWT101_GetYaw()。
-**********************************************************/
-
 static ZeroBias_TypeDef zeroBias = {0};
 static uint32_t ZeroBiasLastFeedTick;   /* 上次Feed时刻(ms),用于运动期连续补偿 */
 

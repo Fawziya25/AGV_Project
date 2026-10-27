@@ -7,6 +7,19 @@
 #include "yawPIDcontroller.h"
 #include "radar_task.h"
 
+/* ---------------- 底盘几何与传动（2026-10-27 用户确认） ----------------
+   横向半轮距 114mm、纵向半轮距 95.5mm，麦轮**纵向安装**（滚动方向沿车身前后）。
+   轮径 75mm → 周长 π×75 ≈ 235.62mm；驱动器 3200 脉冲/圈。
+   原地旋转时的力臂只用**横向**半轮距：轮子的纵向速度 = ω × 它到纵轴的距离，
+   纵向半轮距只产生横向速度、被 45° 辊子吃掉，不参与滚动。
+   注意：下面这两个遗留的 a/b 宏没有引用（且 a/b 这种名字会污染变量名），真几何用上面这组。 */
+#define CHASSIS_PI                3.14159265f
+#define WHEEL_DIAMETER_MM         75.0f
+#define WHEEL_CIRCUMFERENCE_MM    (CHASSIS_PI * WHEEL_DIAMETER_MM)   /* ≈235.62mm */
+#define WHEEL_PULSES_PER_REV      3200.0f                            /* 脉冲/圈 */
+#define WHEEL_HALF_TRACK_MM       114.0f   /* 横向半轮距 = 原地旋转力臂 */
+#define WHEEL_HALF_WHEELBASE_MM   95.5f    /* 纵向半轮距：不参与原地旋转 */
+
 #define a 100
 #define b 115
 
@@ -37,6 +50,12 @@ void AGV_Position_Rotate(uint8_t dir);
 void AGV_Position_Init();
 void AGV_Position_Set(uint16_t x, uint16_t y);
 void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir);
+/* 漂移前进：平移与转向**同时**进行的一次动作，走到 (x,y) 时车头正好是 tarDir
+   (0:X+ 1:Y+ 2:X- 3:Y-)，速度用宏 Vel。车头与运动方向全程不一致（这就是漂移）；
+   目标朝向与当前相同时退化成纯平移/纯斜行。落点按弧线弦做修正，朝向末尾用
+   AGV_SetYaw() 闭环收口。与 Go() 的区别：Go 是先直行再平移的两段折线、转向另做。
+   1=收到到位帧，0=等到位超时（坐标仍按目标锚定，开环）。 */
+uint8_t AGV_Position_Drift(uint16_t x, uint16_t y, uint8_t tarDir);
 void AGV_Position_Depart();
 void AGV_Position_Qcode_to_Raw();
 void AGV_Position_Raw_to_Rough();

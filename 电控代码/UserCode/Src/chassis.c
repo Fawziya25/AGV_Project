@@ -56,8 +56,8 @@ void AGV_Position_Init(void)
  */
 void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
 {
-	float n = distance/235.62;  // 轮子周长
-	uint32_t p = (uint32_t)(n*3200);
+	float n = (float)distance / WHEEL_CIRCUMFERENCE_MM;  // 圈数（周长/脉冲数见 chassis.h 几何宏）
+	uint32_t p = (uint32_t)(n * WHEEL_PULSES_PER_REV);
 	dir^=1;
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
 	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
@@ -91,8 +91,8 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
  */
 void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 {
-	float n = distance/235.62;  // 轮子周长
-	uint32_t p = (uint32_t)(n*3200);
+	float n = (float)distance / WHEEL_CIRCUMFERENCE_MM;  // 圈数（周长/脉冲数见 chassis.h 几何宏）
+	uint32_t p = (uint32_t)(n * WHEEL_PULSES_PER_REV);
 
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
 	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
@@ -194,6 +194,203 @@ void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir)
 	Yaw_MovingOffsetEnd();
 	// 重新锚定小车位置
 	AGV_Position_Set(x, y);
+}
+
+/* ==================== 漂移前进（边滑边转，一次到位） ====================
+ * 漂移 = **车头朝向与实际运动方向不一致**的滑行：底盘在一次连续动作里同时完成
+ * "平移"和"转向"，车头从当前朝向前转到 tarDir，到点时**位置和朝向同时**到位。
+ * 它不是"先原地转到目标朝向、再斜着走"——那种走法转的时候车是停着的，是两段。
+ *
+ * —— 轮子上怎么叠加
+ * 麦轮是线性的：轮子转角 = 平移分量 + 旋转分量，各算各的再相加。
+ *   平移（前进 s、左移 t，单位 mm）：
+ *       轮1 = t - s     轮2 = s + t     轮3 = s - t     轮4 = -(s + t)
+ *     （与 GoStraight / Translate 的字节逐位一致，见下面的 FWD/LEFT 位）
+ *   旋转（左转 Δθ）：四个轮子同向同量，每轮行程 = K × Δθ，K 见 DRIFT_MM_PER_DEG
+ * 四个轮子的速度按**各自总行程**等比给，同时启动、同时停 —— 平移和转向才是同时发生的。
+ *
+ * —— 为什么平移分量要先转 -Δθ/2 再放大
+ * 车体一边走一边转，世界系里的轨迹是一条圆弧，落点在**弦**上；弦的方向等于首尾
+ * 两个车头朝向的平均值（即转到一半时的朝向）。所以要落在指定点上，车体系的平移
+ * 方向必须提前转 Δθ/2，长度按弦长换算：
+ *     车体系合位移 = |D| × (Δθ/2)/sin(Δθ/2)，方向 = D 提前转 -Δθ/2
+ * Δθ=90° 时系数 1.1107（500mm 的弦，轮子上要走 555mm）；Δθ=0 时系数 1，
+ * 退化成纯平移/纯斜行。不修正的话，90° 漂移的落点会偏掉约半个身位。
+ *
+ * —— 航向怎么保证
+ * 旋转量按实车几何给（K = 横向半轮距 114mm × π/180，见 DRIFT_MM_PER_DEG），但辊子
+ * 打滑、地面摩擦都会让它有误差，所以到位后用 AGV_SetYaw(yaw0 + Δθ) **闭环收口**一次，
+ * 把车头真正拉到目标朝向，并更新 AGV_Direction。
+ *
+ * ⚠ 本段**有意旋转**，绝不能进 Yaw_MovingOffset 窗口：那个量的语义是"本应为 0 的
+ *   航向变化"，把 Δθ 记进去，下一次转弯就会少转一整段。航向误差由末尾闭环收口负责。
+ * ⚠ 位置仍是开环：K 不准时弧线形状会变、落点也跟着偏（朝向由收口兜住）。K 必须标定。
+ * ================================================================= */
+/* ---- 漂移参数：函数体里不留裸数字，标定/调整只改这一块 ---- */
+/* 轮子行程 → 脉冲。与 GoStraight / Translate 同一换算（几何宏在 chassis.h） */
+#define DRIFT_PUL_PER_MM     (WHEEL_PULSES_PER_REV / WHEEL_CIRCUMFERENCE_MM)   /* ≈13.581 脉冲/mm */
+
+/* 车体转 1° 时每个轮子的行程(mm)：
+   轮子纵向安装（滚动方向沿车身前后），绕中心原地转时轮子的纵向速度分量 =
+   ω × 该轮到纵轴的距离 = ω × **横向**半轮距；纵向半轮距只产生横向速度、被 45° 辊子吃掉。
+       K = 114 × π/180 = 1.98968 mm/°   →   90° = 179.07mm/轮 ≈ 2432 脉冲
+   ⚠ 与 AGV_SetOmega() 的 51/50 对不上：1.02RPM/(°/s) 相当于力臂 229.5mm，
+   正好是**全轮距 228mm**（=2×114），把整个轮距当成了力臂、偏大一倍。转弯是 IMU 闭环、
+   偏大只影响环路增益所以没暴露；漂移是开环，必须用几何值。 */
+#define DRIFT_MM_PER_DEG     (WHEEL_HALF_TRACK_MM * CHASSIS_PI / 180.0f)
+
+/* 相邻朝向差 90°（AGV_Direction 一格），rotDeg 表由它推出来 */
+#define DRIFT_TURN_STEP_DEG  90.0f
+
+/* 弧线修正系数：A/B 已含弦长放大 (Δθ/2)/sin(Δθ/2)
+     0°   → 1, 0；±90° → π/4, ±π/4；180° → 0, π/2 */
+#define DRIFT_CHORD_45       (CHASSIS_PI / 4.0f)    /* 0.785398 */
+#define DRIFT_CHORD_180      (CHASSIS_PI / 2.0f)    /* 1.570796 */
+
+/* 阈值与时序 */
+#define DRIFT_MIN_MOVE_MM    0.5f    /* 位移小于此值且不转向 → 视为已到位，不发帧 */
+#define DRIFT_MIN_WHEEL_RPM  1.0f    /* 有行程的轮子最低转速（0 会被当成"不动"） */
+#define DRIFT_ACC            20U     /* 位置模式加速度，与底盘其它走位一致 */
+#define DRIFT_CMD_GAP_MS     1U      /* 逐轮发帧间隔，防粘包 */
+#define DRIFT_SETTLE_MS      200U    /* 到位后的停稳裕量 */
+#define DRIFT_YAW_WRAP_DEG   360.0f  /* 航向归一：一圈 360°，收口目标折到 ±180° 内 */
+
+/* 每个轮子在"纯前进"和"纯左移"时的方向位（1/0 就是直接发出去的那个 dir 字节）。
+   FWD 位 = GoStraight 前进时的字节：调用方 dir=1，函数内 dir^=1 得 0，故就是 WheelNPositiveDir。
+   LEFT 位 = Translate 左移时的字节：调用方 dir=1，写法见 AGV_Position_Translate()。
+   WheelNPositiveDir 四个宏已于 2026-10-27 确认正确 → 上面两条纯动作的字节可信，
+   斜向只是它们的线性叠加（纯直行/纯平移时本函数逐位还原成原字节），符号无需再怀疑。 */
+#define DRIFT_W1_FWD_BIT   (Wheel1PositiveDir)
+#define DRIFT_W2_FWD_BIT   (Wheel2PositiveDir)
+#define DRIFT_W3_FWD_BIT   (Wheel3PositiveDir)
+#define DRIFT_W4_FWD_BIT   (Wheel4PositiveDir)
+#define DRIFT_W1_LEFT_BIT  (Wheel1PositiveDir ^ 1U)
+#define DRIFT_W2_LEFT_BIT  (Wheel3PositiveDir ^ 1U ^ 1U)
+#define DRIFT_W3_LEFT_BIT  (Wheel4PositiveDir ^ 1U ^ 1U)
+#define DRIFT_W4_LEFT_BIT  (Wheel2PositiveDir ^ 1U)
+/* 该位为 1 表示"这个轮子在此方向上的正向就是 dir=1 那一侧"，反之取 -1 */
+#define DRIFT_SGN(bit)     (((bit) != 0U) ? 1.0f : -1.0f)
+
+/**
+ * @brief 漂移前进：边平移边转向，一次动作走到 (x, y) 且车头停在 tarDir
+ * @param x      目标点 X 坐标(mm)
+ * @param y      目标点 Y 坐标(mm)
+ * @param tarDir 目标车头朝向 0:X+ 1:Y+ 2:X- 3:Y-（越界自动 &3）
+ * @retval 1 = 收到到位帧；0 = 等到位超时（坐标仍按目标点锚定，属开环）
+ * @note  一次连续动作 = 平移 + 转向，车头与运动方向全程不一致（这就是漂移）；
+ *        转向量 0 时自动退化成纯平移/纯斜行（车头保持不动）。
+ *        位置与朝向在动作结束时同时到位：位置靠轮子脉冲（开环），朝向靠末尾
+ *        AGV_SetYaw() 闭环收口（吸收 DRIFT_MM_PER_DEG 的误差）。
+ *        **不在本函数里原地转向**——那样车会先停一下，就不是漂移了。
+ *        夹爪/机械臂不归本函数管，调用方自己保证运输姿态（POS_RUN）。
+ */
+uint8_t AGV_Position_Drift(uint16_t x, uint16_t y, uint8_t tarDir)
+{
+	static const uint8_t fwdBit[4]  = { DRIFT_W1_FWD_BIT,  DRIFT_W2_FWD_BIT,  DRIFT_W3_FWD_BIT,  DRIFT_W4_FWD_BIT  };
+	static const uint8_t leftBit[4] = { DRIFT_W1_LEFT_BIT, DRIFT_W2_LEFT_BIT, DRIFT_W3_LEFT_BIT, DRIFT_W4_LEFT_BIT };
+	/* 弧线修正 (A,B)：车体系位移 ds' = A*ds + B*dt，dt' = -B*ds + A*dt。
+	   下标 = (tarDir - 起始朝向) & 3 → 0:不转 1:左90° 2:掉头 3:右90°。
+	   A/B 已含弦长系数 (Δθ/2)/sin(Δθ/2)：0→1、±90°→DRIFT_CHORD_45(π/4)、180°→DRIFT_CHORD_180(π/2)。 */
+	static const float  chordA[4] = { 1.0f, DRIFT_CHORD_45, 0.0f,  DRIFT_CHORD_45  };
+	static const float  chordB[4] = { 0.0f, DRIFT_CHORD_45, DRIFT_CHORD_180, -DRIFT_CHORD_45 };
+	/* 有符号转向角(°，左正右负)，与 AGV_Direction 的 +1=左转 约定一致 */
+	static const float  rotDeg[4] = { 0.0f, DRIFT_TURN_STEP_DEG, 2.0f * DRIFT_TURN_STEP_DEG, -DRIFT_TURN_STEP_DEG };
+
+	int32_t  sdx, sdy;
+	float    ds, dt;              /* 车体系合位移：ds 前后(+前) / dt 左右(+左)，mm */
+	float    v[4];                /* 每轮总行程(mm，带符号) = 平移分量 + 旋转分量 */
+	uint32_t pulses[4];
+	uint16_t spd[4];
+	float    vmax = 0.0f;
+	float    yaw0, tgt;
+	uint8_t  dth;
+	uint8_t  i;
+	uint8_t  ok;
+
+	tarDir &= 3U;                 /* 归一化，越界值不往下传 */
+	dth     = (uint8_t)((tarDir - AGV_Direction + 4U) & 3U);   /* 0/1/2/3 = 不转/左90/掉头/右90 */
+
+	sdx = (int32_t)x - (int32_t)AGV_Position_X;
+	sdy = (int32_t)y - (int32_t)AGV_Position_Y;
+
+	/* 场地坐标 → 车体坐标（用**起始**朝向分解，随后再做弧线修正） */
+	switch (AGV_Direction)
+	{
+		case 0:  ds =  (float)sdx;  dt =  (float)sdy;  break;  /* X+：前+X，左+Y */
+		case 1:  ds =  (float)sdy;  dt = -(float)sdx;  break;  /* Y+：前+Y，左-X */
+		case 2:  ds = -(float)sdx;  dt = -(float)sdy;  break;  /* X-：前-X，左-Y */
+		default: ds = -(float)sdy;  dt =  (float)sdx;  break;  /* Y-：前-Y，左+X */
+	}
+
+	/* 弧线修正：世界系走的是圆弧、落点在弦上，车体系平移方向要提前转 -Δθ/2 并放大。
+	   ⚠ 变量别取名 a / b：chassis.h 顶部有 #define a 100 / #define b 115，会被替换掉。 */
+	{
+		float ca = chordA[dth];
+		float cb = chordB[dth];
+		float ds2 = ca * ds + cb * dt;
+		float dt2 = -cb * ds + ca * dt;
+		ds = ds2;
+		dt = dt2;
+	}
+
+	for (i = 0U; i < 4U; i++)
+	{
+		/* 旋转分量：四轮同向同量，左转为正 */
+		v[i] = DRIFT_SGN(fwdBit[i]) * ds + DRIFT_SGN(leftBit[i]) * dt
+		     + DRIFT_MM_PER_DEG * rotDeg[dth];
+		float mag = (v[i] >= 0.0f) ? v[i] : -v[i];
+		if (mag > vmax) vmax = mag;
+	}
+
+	if (vmax < DRIFT_MIN_MOVE_MM)   /* 已在目标点且不用转向：一帧都不发，只锚定 */
+	{
+		AGV_Position_Set(x, y);
+		return 1U;
+	}
+
+	for (i = 0U; i < 4U; i++)
+	{
+		float mag = (v[i] >= 0.0f) ? v[i] : -v[i];
+		float sp  = (float)Vel * mag / vmax;   /* 按总行程等比：平移与转向同时开始、同时结束 */
+
+		pulses[i] = (uint32_t)(mag * DRIFT_PUL_PER_MM + 0.5f);
+		if (sp < DRIFT_MIN_WHEEL_RPM) sp = DRIFT_MIN_WHEEL_RPM;   /* 有行程的轮子不能是 0，否则等于不动 */
+		spd[i] = (uint16_t)sp;
+	}
+
+	/* 记录漂移前的航向，收口时用作绝对基准。**这一段有意旋转，不能进
+	   Yaw_MovingOffset 窗口**（那个量是"本应为 0 的航向变化"，把 Δθ 记进去，
+	   下一次 AGV_Turn() 就会少转一整段）。 */
+	yaw0 = ZeroBias_GetYaw();
+
+	Emm_V5_ClearRxFrame();        /* 清历史回帧：下面等的是本次动作新到的到位帧 */
+
+	for (i = 0U; i < 4U; i++)
+	{
+		if (pulses[i] == 0U) continue;         /* 该轮净行程为 0（平移与旋转正好抵消），不发 */
+		Emm_V5_Pos_Control((uint8_t)(i + 1U),
+		                   (v[i] >= 0.0f) ? 1U : 0U,
+		                   spd[i], DRIFT_ACC, pulses[i], 2U, 1U);   /* raF=2 相对当前实时位置，snF=1 多机同步 */
+		HAL_Delay(DRIFT_CMD_GAP_MS);              /* 防粘包，与 GoStraight/Translate 一致 */
+	}
+
+	Emm_V5_Synchronous_motion(0U);            /* 广播触发四轮同时启动 */
+	HAL_Delay(DRIFT_CMD_GAP_MS);
+
+	ok = Emm_V5_WaitArrive(EMM_V5_ARRIVE_TMO_MS);   /* 超时兜底，不死等 */
+
+	HAL_Delay(DRIFT_SETTLE_MS);   /* 停稳裕量，与 GoStraight/Translate 收尾一致 */
+
+	/* 闭环收口：开环旋转量 K 有误差，用陀螺把车头真正拉到"漂移前航向 + Δθ"；
+	   同时把打滑丢掉的转角补回来。这一步之后朝向由 IMU 保证，不依赖 K。 */
+	tgt = yaw0 + rotDeg[dth];
+	while (tgt >   DRIFT_YAW_WRAP_DEG * 0.5f) tgt -= DRIFT_YAW_WRAP_DEG;
+	while (tgt <= -DRIFT_YAW_WRAP_DEG * 0.5f) tgt += DRIFT_YAW_WRAP_DEG;
+	AGV_SetYaw(tgt);
+
+	AGV_Direction = tarDir;       /* 逻辑朝向跟上车头，后续 Go/Turn 才按新朝向算 */
+	AGV_Position_Set(x, y);       /* 开环锚定到目标点 */
+	return ok;
 }
 
 void AGV_Position_Rotate(uint8_t dir)
