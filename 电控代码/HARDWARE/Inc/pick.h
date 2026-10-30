@@ -1,67 +1,43 @@
 #ifndef __PICK_H
 #define __PICK_H
-/* 机械臂模块（原 UserCode/Inc/pick_ctrl.h，2026-10-04 改名成 pick 并移到 HARDWARE/）*/
-/* 预设位置宏(括号宏)：task.c 里用不带括号方式调用 Pick_JumpTo POS_XXX;
-   例如 Pick_JumpTo POS_CAR;  展开为 Pick_JumpTo(30.0f, 45.0f, 5.0f)
-   (轮到 Pick_MoveTo 时把函数名换掉即可，两版签名一致)
-   —— 括号里的数随下面宏走，别在这儿写死；改值只改下面。 */
-/* ⚠ 第一列(角度z)的单位是 SERVO_Z 的角度，量程 2026-10-14 从 360° 改成 270°。
-   换舵机后命令角到脉宽的换算变了（5.56 → 7.41us/°），**下面这批角度值全部要重对**：
-   数值照旧是"命令角"，但同一个数现在物理转得更多。改之前看着差不多的姿态，
-   改完都会明显偏过去。对位就是把值往小了调（大致按 270/360 = 0.75 的比例算起点）。 */
-//======================角度z    高度z   半径r=====================
-#define POS_START    (90.0f,  10.0f,   0.0f)//车运行前的位置
-#define POS_RUN      (90.0f,  10.0f,   10.0f)//车移动时候位置
-/* ↑ 这行 2026-10-14 被误删过（改上面几个宏时带掉的），全工程 8 处
-   `Pick_JumpTo POS_RUN;` 一起报 "expected ';' before 'POS_RUN'"。
-   值是按原样补回来的(90,10,10)，**没跟着这次调姿重新对过** —— 如果 POS_START
-   那些数也要动，这条一起看。 */
 
+//====================== 角度z     高度z    半径r =====================
+#define POS_START              ( 90.0f,  5.0f,    0.0f )   // 车运行前的位置
+#define POS_RUN                ( 90.0f,  5.0f,   10.0f )   // 车移动时候位置
 
-#define POS_OBSERVE_RAW_A   (180.0f, 8.0f,  2.0f )//原料区抓取位置下 之抓取A位置
-#define POS_OBSERVE_RAW_CENTER   (180.0f, 3.0f,  95.0f)//pick_plus时候的观察位置
-#define POS_OBSERVE_RING_LOW (180.0f, 140.0f,  18.0f)//观察圆环位置 细修正时候
-#define POS_OBSERVE_RING_MIDDLE (180.0f, 80.0f,  18.0f)//观察暂存区上 料块位置
-#define POS_OBSERVE_RING_HIGH (180.0f, 5.0f,  18.0f)//观察三个圆环 粗修正的时候对角度修正的时候使用
+//====================== 车上放置位置 =====================
+#define POS_CAR                ( 55.0f,  4.0f,   18.0f )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
+#define PICK_TURN_ANG_A         30.0f
+#define PICK_TURN_ANG_B        150.0f
+#define PICK_TURN_ANG_C        270.0f
 
-#define POS_RAW_A       (180.0f, 50.0f,  125.0f )//原料区抓取位置左前
-#define POS_RAW_B       (180.0f, 50.0f,  2.0f )//原料区抓取位置下
-#define POS_RAW_C       (180.0f, 50.0f,  125.0f )//原料区抓取位置右前
+//====================== 原料区位置 =====================
+#define POS_RAW_A              (180.0f, 30.0f,  125.0f )   // 原料区抓取位置左前
+#define POS_RAW_B              (180.0f, 30.0f,    2.0f )   // 原料区抓取位置下
+#define POS_RAW_C              (180.0f, 30.0f,  125.0f )   // 原料区抓取位置右前
+#define POS_OBSERVE_RAW_A      (180.0f,  5.0f,    2.0f )   // 原料区抓取位置下 之抓取A位置
+#define POS_OBSERVE_RAW_CENTER (180.0f,  5.0f,   95.0f )   // pick_plus时候的观察位置
 
-#define POS_CAR        (55.0f,   24.0f,  18.0f)//车上放置位置(Pick_RAW 三次抓取都放这一点)
+//====================== 圆环放置位置 =====================
+#define POS_1                  (218.0f, 121.0f,   83.0f )   // 圆环左边
+#define POS_2                  (180.0f, 121.0f,   18.0f )   // 圆环中间
+#define POS_3                  (138.0f, 121.0f,   83.0f )   // 圆环右边
+#define POS_1_HIGE             (220.0f,  61.0f,   80.0f )   // 圆环物块左边
+#define POS_2_HIGE             (180.0f,  61.0f,   18.0f )   // 圆环物块中间
+#define POS_3_HIGE             (140.0f,  61.0f,   80.0f )   // 圆环物块右边
+#define POS_OBSERVE_RING_LOW   (180.0f, 120.0f,   18.0f )   // 观察圆环位置 细修正时候
+#define POS_OBSERVE_RING_MIDDLE (180.0f, 60.0f,   18.0f )   // 观察暂存区上 料块位置
+#define POS_OBSERVE_RING_HIGH  (180.0f,   5.0f,   18.0f )   // 观察三个圆环 粗修正的时候对角度修正的时候使用
 
-/* 车上三个槽位不是一个臂位姿三套坐标，而是「同一个 POS_CAR + 转盘舵机转角」：
-   30°=A 槽, 150°=B 槽, 270°=C 槽(上电初值 0°=A)。用 Pick_TurnTable_Set(slot) 选。
-   【2026-10-14 由 0/120/240 改成 30/150/270 —— 转盘舵机是 270° 量程，想让三个槽
-   均分整圈。⚠ C 槽的 270.0f 正好压在量程上限，Servo_SetAngle/Smooth 的钳位是
-   `> maxAngle` 才钳，所以 270 本身合法、能到；但没有余量了，以后要是把
-   SERVO_T_MAX_ANG 调小一点，C 槽会被静默削掉、跑到别处去。】 */
-#define PICK_TURN_ANG_A   30.0f
-#define PICK_TURN_ANG_B   150.0f
-#define PICK_TURN_ANG_C   270.0f
+//====================== 夹爪舵机角度 =====================
+#define PICK_OBSERVE            10.0f   /* 张开观察 */
+#define PICK_GRAB              110.0f   /* 抓住物料 */
+#define PICK_RELEASE            65.0f   /* 放开物料 */
 
+// 基础值修正
+#define SERVO_Z_BASE_OFFSET      0.0f   /* Z轴旋转舵机基础修正(°) */
+#define SERVO_GRIP_BASE_OFFSET   0.0f   /* 夹爪舵机基础修正(°) */
 
-
-
-#define POS_1        (218.0f, 141.0f,  83.0f)//圆环左边
-#define POS_2        (180.0f, 141.0f,  18.0f)//圆环中间
-#define POS_3        (138.0f, 141.0f,  83.0f)//圆环右边
-#define POS_1_HIGE   (220.0f, 81.0f,  80.0f)//圆环物块左边
-#define POS_2_HIGE   (180.0f, 81.0f,  18.0f)//圆环物块中间
-#define POS_3_HIGE   (140.0f, 81.0f,  80.0f)//圆环物块右边
-
-/* 夹爪舵机角度参数(°)：调整角度只需改这里，pick.c 夹爪函数引用
-   ⚠ 2026-10-14 夹爪舵机**换成了 180° 量程**的（原 270°）。脉宽还是 500~2500us，
-     所以每度脉宽从 7.41 → 11.11us/°，**同一个命令角现在物理转 1.5 倍远**：
-     下面这三个数原来的值(15/129/75)换舵机后指向的位置全偏了，正在用
-     `Pick_Test_Gripper()`(模式 9) / `Test_Pick_Scale()`(模式 3) 重新对。
-     旧的 15/129/75 等比缩(× 180/270 = 0.667)的起点是 10 / 86 / 50，可以当
-     另一组参照。
-     三个数都远小于 180，不会撞上 Servo_SetAngle 里 `> maxAngle` 那句钳位，
-     不存在被静默削角的问题。详见 servo.c 夹爪配置区那段。 */
-#define PICK_OBSERVE    10.0f   /* 张开观察 */
-#define PICK_GRAB      110.0f   /* 抓住物料 */
-#define PICK_RELEASE   65.0f   /* 放开物料 */
 
 #include <stdint.h>
 #include "positionPIDcontroller.h"

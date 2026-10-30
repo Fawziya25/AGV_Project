@@ -279,6 +279,7 @@ void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
 		AGV_Position_Go(tarX, tarY, 0);
 	}
 	AGV_Turn(tarDir);
+
 }
 
 /**
@@ -298,31 +299,38 @@ void AGV_Position_Qcode_to_Raw()
 	// AGV_TurnLeft();
 	// AGV_Position_Go(Raw, 0);
 	AGV_Position_Cruise(1, 0);
+	AGV_Position_Translate(50, Vel, 0);
 }
 
 void AGV_Position_Raw_to_Rough()
 {
+	AGV_Position_Translate(50, Vel, 1);
 	// AGV_Position_Go(Raw_Depart, 0);
 	// AGV_TurnRight();
 	// AGV_Position_Go(Rough, 0);
 	// AGV_TurnRight();
 	AGV_Position_Cruise(2, 2);
+	AGV_Position_Translate(50, Vel, 0);
 }
 
 void AGV_Position_Rough_to_Temp()
 {
+	AGV_Position_Translate(50, Vel, 1);
 	// AGV_Position_Go(Waypoint_RF, 0);
     // AGV_TurnRight();
 	// AGV_Position_Go(Temp, 0);
 	AGV_Position_Cruise(3, 1);
+	AGV_Position_Translate(50, Vel, 0);
 }
 
 void AGV_Position_Temp_to_Raw()
 {
+	AGV_Position_Translate(50, Vel, 1);
 	// AGV_Position_Go(Waypoint_RB, 0);
     // AGV_TurnRight();
 	// AGV_Position_Go(Raw, 0);
 	AGV_Position_Cruise(4, 0);
+	AGV_Position_Translate(50, Vel, 0);
 }
 
 /**
@@ -331,6 +339,7 @@ void AGV_Position_Temp_to_Raw()
  */
 void AGV_Position_GoBack()
 {
+	AGV_Position_Translate(50, Vel, 1);
 	// AGV_Position_Go(Waypoint_RF, 0);
 	// AGV_TurnRight();
 	// AGV_Position_Go(Destination, 0);

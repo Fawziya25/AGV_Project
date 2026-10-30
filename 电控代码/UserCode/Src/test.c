@@ -315,8 +315,8 @@ static void Test_AGV(void);          /* 1 跑一遍位置 */
 static void Test_Correct(void);      /* 2 夹爪到观察位 + 0x02 位置修正 */
 static void Test_Turn(void);         /* 3 航向PID：左转/右转 90° 往复(不返回) */
 static void Test_Pick_Raw_PLUS(void);/* 4 原料 ABC → 车上 123(纯动作，不看任务码) */
-static void Test_Pick_Place(void);   /* 5 车上 123 → 圆环 123(纯动作) */
-static void Test_Pick_Raw(void);     /* 6 原料 B → 车上 123(走相机 0x02，不用任务码) */
+static void Test_Pick_POS_Test(void);   /* 5 车上 123 → 圆环 123(纯动作) */
+static void Test_Pick_Task(void);     /* 6 原料 B → 车上 123(走相机 0x02，不用任务码) */
 static void Test_Camera(void);       /* 7 相机指令轮询(0x00~0x05 每5秒一条) */
 static void Test_Motor(void);        /* 9 臂测试：高度/半径步进电机 + 转盘/Z轴舵机(都不返回) */
 static void Test_Radar(void);        /* 10 雷达：一次方格扫描 + 四段路径规划，结果分页显示(不返回) */
@@ -463,11 +463,11 @@ static void Test_AGV(void)
     AGV_Position_Init();
     HWT101_Init(&huart5); /* 初始化HWT101 */
 
-    AGV_Position_Depart();       HAL_Delay(2000);
-    AGV_Position_Qcode_to_Raw();   HAL_Delay(2000);
-    AGV_Position_Raw_to_Rough();   HAL_Delay(2000);
-    AGV_Position_Rough_to_Temp();  HAL_Delay(2000);
-    AGV_Position_Temp_to_Raw();    HAL_Delay(2000);
+    AGV_Position_Depart();       HAL_Delay(3000);
+    AGV_Position_Qcode_to_Raw();   HAL_Delay(3000);
+    AGV_Position_Raw_to_Rough();   HAL_Delay(3000);
+    AGV_Position_Rough_to_Temp();  HAL_Delay(3000);
+    AGV_Position_Temp_to_Raw();    HAL_Delay(3000);
     AGV_Position_GoBack();
 }
 
@@ -520,12 +520,11 @@ static void Test_Pick_Raw_PLUS(void)
     Test_GrabRawToCar(1, 1);  /* 原料 B 框 → 车上 2 槽(转盘 150°) */
     Test_GrabRawToCar(2, 2);  /* 原料 C 框 → 车上 3 槽(转盘 270°) */
 
-    Pick_JumpTo POS_DEFAULT;  /* 摆臂到离开位，免得挡着相机 */
 }
 
 
 
-static void Test_Pick_Raw(void)
+static void Test_Pick_Task(void)
 {
     Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
@@ -544,16 +543,14 @@ static void Test_Pick_Raw(void)
 }
 
 
-static void Test_Pick_Place(void)
+static void Test_Pick_POS_Test(void)
 {
-    Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     HWT101_Init(&huart5); /* 初始化HWT101 */
-     QRcode_Task();
-    Place_Correct_High();   /* 粗调 */
-    Place_Correct_Angle();  /* 角度 */
-    Place_Correct_Low();
+    QRcode_Task();
     Place_ROUGH();
+    Pick_RAW_BCA();
+    Place_TEMP();
 }
 
 /* 模式 11：最简单的放置过程 —— 只验"车上取料位 → 三个圆环"这条动作链，
@@ -564,30 +561,7 @@ static void Test_Pick_Place(void)
      把该位置写成绝对零点)，否则绝对坐标整体偏移。
    ⚠ 半径电机(地址 6)不回到位帧，Pick_JumpTo 只发目标不等回执；
      看动作是否到位以实物为准，不要以为没回帧就是没动。 */
-static void Test_Place_Ring(void)
-{
-    Pick_Init();              /* 机械臂上电+收臂到运输位 */
-    Pick_Gripper_Release();   /* 先到已知爪位，免得第一次抓时夹爪卡在半途 */
 
-    for(uint8_t ring = 1U; ring <= 3U; ring++)
-    {
-        Pick_JumpTo POS_CAR;   /* 先回车上取料位 */
-        Pick_Gripper_Grab();        /* 夹住物料 */
-        HAL_Delay(300);             /* 停一下，肉眼确认夹稳了再走 */
-
-        switch(ring)
-        {
-            case 1U:  Pick_JumpTo POS_1; break;
-            case 2U:  Pick_JumpTo POS_2; break;
-            default:  Pick_JumpTo POS_3; break;
-        }
-
-        Pick_Gripper_Release();     /* 放到圆环上 */
-        HAL_Delay(300);             /* 等爪子完全张开，臂再抬走 */
-    }
-
-    Pick_JumpTo POS_RUN;       /* 跑完收到车体上方运输位 */
-}
 
 
 
@@ -890,14 +864,13 @@ void Test_Switch(void)
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正
         case 3:  Test_Turn();        break;  //转向PID：左转90/右转90往复，增益在 yawPIDcontroller.h 的 KP/KI/KD
-        case 4:  Test_Pick_Raw_PLUS();    break;  //依次抓取ABC到车上123位置(不看任务码、不碰相机，纯动作)
-        case 5:  Test_Pick_Place();  break; //    依次抓取车上123位置到圆环123位置
-        case 6:  Test_Pick_Raw();        break;   //依次抓取B到车上123位置(走相机：0x04 等到静止的块才抓)
-        case 7:  Test_Camera();      break;  //定时器自带oled显示接收数据 ，然后每隔5秒轮流发送所有模式指令 比如任务0x04的可以就123，0x05就用颜色数字2
+        case 4:  break;//不用
+        case 5:  Test_Pick_POS_Test();  break; // 无视觉的夹爪位置调试
+        case 6:  break;//不用
+        case 7:  Test_Camera();      break;  //用到视觉的调试
         case 8:  QRcode_Task();       break;  //调用任意的测试函数
         case 9:  Test_Motor();       break;  //臂测试：高度/半径步进电机(0<->30mm往返)或转盘舵机(A/B/C槽)，靠看+尺子验方向和比例(不返回)
         case 10: Test_Radar();       break;  //雷达：一次方格扫描+六段路径规划，结果分页显示；C6/C8 翻页，A8 重跑(不返回)
-        case 11: Test_Place_Ring();  break;  //简单放置：POS_CAR 取料 → 圆环 1/2/3 依次放(纯动作，不扫码不碰相机)
         default: break;                      /* 号还没写实现的：初始化完就停住 */
     }
 

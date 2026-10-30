@@ -23,6 +23,7 @@
  */
 #include "servo.h"
 #include "stm32f4xx_hal.h"
+#include "pick.h"      /* SERVO_Z_BASE_OFFSET / SERVO_GRIP_BASE_OFFSET（和姿态宏放一起调） */
 #include <math.h>      /* fabsf */
 
 /* ==================== 可移植配置区 ====================
@@ -172,23 +173,39 @@ static const ServoCfg servoCfg[4] = {
 
 static TIM_HandleTypeDef hServo[4] = {0};
 
+/* 该路舵机的基础修正值(°)：只有 Z轴、夹爪两路有，转盘/雷达恒为 0。
+   数值在 pick.h 的 SERVO_Z_BASE_OFFSET / SERVO_GRIP_BASE_OFFSET，
+   和 POS_* / PICK_* 那批姿态角放一起，重装舵机后只改那一个数。 */
+static float Servo_BaseOffset(ServoId id)
+{
+    if(id == SERVO_Z)    return SERVO_Z_BASE_OFFSET;
+    if(id == SERVO_GRIP) return SERVO_GRIP_BASE_OFFSET;
+    return 0.0f;
+}
+
 /* 角度 <-> 脉宽 换算（按每路的 invert 处理方向）。
    正常：角度 minAngle 对应 minPulse；
-   反向：角度 minAngle 对应 maxPulse（500us↔2500us 对调）。 */
-static uint32_t Servo_AngleToPulse(const ServoCfg *c, float angle)
+   反向：角度 minAngle 对应 maxPulse（500us↔2500us 对调）。
+   入参/出参都是**姿态角**（宏里写的那个数的语义），基础修正在函数内部加减：
+   出脉宽时 +offset，读回角度时 −offset。这样上层(Servo_GetAngle/Smooth/调用方)
+   看到的永远是宏里的角度，重装舵机只改 offset。
+   ⚠ 不做越界保护：offset 把角度推到量程外时，脉宽会跟着超出去。 */
+static uint32_t Servo_AngleToPulse(ServoId id, const ServoCfg *c, float angle)
 {
-    float span = c->invert ? (c->maxAngle - angle) : (angle - c->minAngle);
+    float ang  = angle + Servo_BaseOffset(id);      /* 命令角 = 姿态角 + 修正 */
+    float span = c->invert ? (c->maxAngle - ang) : (ang - c->minAngle);
     return (uint32_t)(c->minPulse
                       + span * (float)(c->maxPulse - c->minPulse)
                         / (c->maxAngle - c->minAngle) + 0.5f);
 }
 
-static float Servo_PulseToAngle(const ServoCfg *c, uint32_t pulse)
+static float Servo_PulseToAngle(ServoId id, const ServoCfg *c, uint32_t pulse)
 {
-    float a = c->minAngle
-            + (float)(pulse - c->minPulse) * (c->maxAngle - c->minAngle)
-              / (float)(c->maxPulse - c->minPulse);
-    return c->invert ? (c->maxAngle + c->minAngle - a) : a;
+    float ang = c->minAngle
+              + (float)(pulse - c->minPulse) * (c->maxAngle - c->minAngle)
+                / (float)(c->maxPulse - c->minPulse);
+    if(c->invert) ang = c->maxAngle + c->minAngle - ang;
+    return ang - Servo_BaseOffset(id);              /* 还原成姿态角 */
 }
 
 /**
@@ -233,7 +250,7 @@ static void Servo_TimInit(uint8_t id)
     float bootAngle = c->startAngle;
     if(c->approachAngle > c->minAngle && c->approachAngle < c->maxAngle)
         bootAngle = c->approachAngle;
-    oc.Pulse = Servo_AngleToPulse(c, bootAngle);   /* 含 invert 处理 */
+    oc.Pulse = Servo_AngleToPulse((ServoId)id, c, bootAngle);   /* 含 invert + 基础修正 */
     oc.OCFastMode = TIM_OCFAST_DISABLE;
     HAL_TIM_PWM_ConfigChannel(h, &oc, c->channel);
     HAL_TIM_PWM_Start(h, c->channel);
@@ -269,7 +286,7 @@ void Servo_SetAngle(ServoId id, float angle)
     const ServoCfg *c = &servoCfg[id];
     if(angle > c->maxAngle) angle = c->maxAngle;
     if(angle < c->minAngle) angle = c->minAngle;
-    __HAL_TIM_SET_COMPARE(&hServo[id], c->channel, Servo_AngleToPulse(c, angle));
+    __HAL_TIM_SET_COMPARE(&hServo[id], c->channel, Servo_AngleToPulse(id, c, angle));
 }
 
 /**
@@ -280,7 +297,7 @@ float Servo_GetAngle(ServoId id)
 {
     if(id > SERVO_RADAR) return 0.0f;
     const ServoCfg *c = &servoCfg[id];
-    return Servo_PulseToAngle(c, __HAL_TIM_GET_COMPARE(&hServo[id], c->channel));
+    return Servo_PulseToAngle(id, c, __HAL_TIM_GET_COMPARE(&hServo[id], c->channel));
 }
 
 /**

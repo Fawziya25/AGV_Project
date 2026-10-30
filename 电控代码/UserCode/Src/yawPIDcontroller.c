@@ -170,20 +170,35 @@ float ZeroBias_GetBias(void)
 }
 
 /**
- * @brief 初始化角度PID控制器（增益取 yawPIDcontroller.h 的 YAW_PID_KP/KI/KD 宏）
- * @retval None
+ * @brief 装载增益 + 清 PID 运行状态（每次转弯前调）
+ * @note  **不碰 yawOffset**：MovingOffset/RotatingOffset 是导航跨段累积的偏差补偿，
+ *        在这里清掉会让直行/转弯的补偿白算。整机上电要清零请用 YawPID_Init()。
+ *        integral / prevError 在每个转弯结束时/开头清一次都无害（死区里本来就把
+ *        integral 清了），prevError 不清反而会让本转弯第一拍的 D 项用上一转弯的残差。
  */
-void YawPID_Init(void)
+static void YawPID_Prepare(void)
 {
     yawPID.kp = YAW_PID_KP;
     yawPID.ki = YAW_PID_KI;
     yawPID.kd = YAW_PID_KD;
-    yawPID.target = 0.0f;
-    yawPID.current = 0.0f;
     yawPID.error = 0.0f;
     yawPID.prevError = 0.0f;
     yawPID.integral = 0.0f;
     yawPID.output = 0.0f;
+}
+
+/**
+ * @brief 初始化角度PID控制器（增益取 yawPIDcontroller.h 的 YAW_PID_KP/KI/KD 宏）
+ * @note  **不是必须在上电时调**：AGV_SetYaw() 每次转弯前会自己 YawPID_Prepare()，
+ *        和 AGV_Correct() 内部调 PositionPID_Init() 是同一个套路。
+ *        这里额外把 yawOffset 一起清零，只在整机上电/重跑全程前用得到。
+ * @retval None
+ */
+void YawPID_Init(void)
+{
+    YawPID_Prepare();
+    yawPID.target = 0.0f;
+    yawPID.current = 0.0f;
     YawOffset_Init();   /* 零偏/偏差状态清零已移至 HWT101_Init() 起始处,此处不重复 */
 }
 
@@ -272,6 +287,7 @@ static void yawPID_Calculate(void)
  */
 void AGV_SetYaw(float yaw)
 {
+    YawPID_Prepare();              /* 自带初始化：不依赖上电时调过 YawPID_Init() */
     yaw = Yaw_Normalize180(yaw);   /* 入口先归一，调用方传什么都安全 */
     while(TurnCpltFlag == 0)
     {

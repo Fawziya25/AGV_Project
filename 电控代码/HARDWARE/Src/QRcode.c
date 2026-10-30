@@ -7,7 +7,7 @@
 uint8_t Starscan_CMD[9] = {0x7E, 0x00, 0x08, 0x01, 0x00, 0x02, 0x01, 0xAB, 0xCD};
 
 /* 扫码等待上限(秒): 到点还没收全15字节就用保底串, 不让主流程卡在扫码上 */
-#define QRC_WAIT_SEC  5U
+#define QRC_WAIT_SEC  1U
 /* 一帧的字节数: xxx+xxx+xxx+xxx */
 #define QRC_LEN       15U
 /* 保底结果: 15秒内没扫到码时整串换成它, 保证 Pick/Place_Color 一定有值可用。

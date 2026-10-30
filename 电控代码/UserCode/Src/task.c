@@ -17,8 +17,11 @@ uint8_t RerunFlag = 0;
 uint8_t Route_id=0;
 
 /**
- * @brief 初始化AGV，包括DWT、CAN、OLED、HWT101、YawPID
+ * @brief 初始化AGV，包括DWT、CAN、OLED、HWT101
  *        末尾阻塞在 Menu_Init() 等 A8 启动（期间 C6/C8 切换路线）
+ * @note  航向PID不用在这里初始化：AGV_SetYaw() 每次转弯前自己装载增益、清状态
+ *        （和 AGV_Correct() 内部调 PositionPID_Init() 一样）。真要清导航偏差
+ *        补偿(yawOffset)再手动调一次 YawPID_Init()。
  * @retval None
  * @author Fawziya
  * @date 2026-08-18
@@ -30,9 +33,7 @@ void AGV_Init(void)
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     DWT_Init();// 初始化DWT,用于微秒级延时
     AGV_Can_Init(); // 初始化CAN,用于电机通信
-    
     AGV_Position_Init(); // 初始化位置坐标系
-    YawPID_Init();  /* 航向PID,增益见 yawPIDcontroller.h 的 YAW_PID_KP/KI/KD */
     HWT101_Init(&huart5);// 初始化HWT101
     Radar_Init();           /* 雷达客户端初始化（不发帧）；在 Menu_Init 之前，菜单里要选起点方格 */
     Menu_Init();            /* 阻塞等待A8启动，期间C6/C8切换路线 */
@@ -77,8 +78,8 @@ void TaskProc(void)
 //===================================到达原料区==================================
         case Pick1:
             Pick_Correct();
-            Pick_RAW();
-            //Pick_RAW_PLUS(); /* 备用路线：读一次0x03三框颜色，A/C 位带底盘补偿（已实现，未启用）*/
+            //Pick_RAW();
+            Pick_RAW_PLUS(); 
             TaskCode = Move2;
             break;
         case Move2:
@@ -88,7 +89,7 @@ void TaskProc(void)
 //===================================到达粗加工区=================================
         case Place1:
             Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
-            Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
+            //Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
             Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
             Place_ROUGH();
             TaskCode = Pick2;
@@ -103,8 +104,16 @@ void TaskProc(void)
             break;
 //===================================到达暂存区==================================
         case Place2:
-            if(RerunFlag == 0) {Place_Correct_Low();}
-            else               Place_TEMP_Correct();
+            if(RerunFlag == 0) 
+            {
+                Place_Correct_High(); 
+                //Place_Correct_Angle();
+                Place_Correct_Low();
+            }
+            else 
+            {
+                Place_TEMP_Correct();
+            }
             Place_TEMP();
             TaskCode = (RerunFlag == 0) ? Move4 : GoBack;
             RerunFlag = 1;

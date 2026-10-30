@@ -124,7 +124,7 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
   }
-  Pick_JumpTo POS_DEFAULT;/*结束后回到POS_DEFAULT*/
+
   /* USER CODE END 3 */
 }
 
