@@ -1,4 +1,4 @@
-#include "chassis.h"
+﻿#include "chassis.h"
 #include "Emm_V5.h"
 #include "delay.h"
 #include "radar_task.h"
@@ -21,28 +21,28 @@ void AGV_Position_Init(void)
     AGV_Position_Y = 2250;
 
 	// 所有拐点坐标(mm)
-	Points_X[0] = 400;
-	Points_Y[0] = 2000;
+	Points_X[0] = 310;
+	Points_Y[0] = 2090;
 	// 2: QRCode
-	Points_X[2] = 400;
+	Points_X[2] = 310;
 	Points_Y[2] = 1200;
-	Points_X[4] = 400;
-	Points_Y[4] = 400;
+	Points_X[4] = 310;
+	Points_Y[4] = 310;
 	// 10: Rough
 	Points_X[10] = 1200;
-	Points_Y[10] = 2100;
+	Points_Y[10] = 2090;
 	Points_X[12] = 1200;
 	Points_Y[12] = 1200;
 	// 14：Raw
 	Points_X[14] = 1200;
-	Points_Y[14] = 300;
-	Points_X[20] = 2000;
-	Points_Y[20] = 2000;
+	Points_Y[14] = 310;
+	Points_X[20] = 2090;
+	Points_Y[20] = 2090;
 	// 22: Temp
-	Points_X[22] = 2100;
+	Points_X[22] = 2090;
 	Points_Y[22] = 1200;
-	Points_X[24] = 2000;
-	Points_Y[24] = 400;
+	Points_X[24] = 2090;
+	Points_Y[24] = 310;
 }
 
 /**
@@ -218,8 +218,9 @@ void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir)
  * 退化成纯平移/纯斜行。不修正的话，90° 漂移的落点会偏掉约半个身位。
  *
  * —— 航向怎么保证
- * 旋转量按实车几何给（K = 横向半轮距 114mm × π/180，见 DRIFT_MM_PER_DEG），但辊子
- * 打滑、地面摩擦都会让它有误差，所以到位后用 AGV_SetYaw(yaw0 + Δθ) **闭环收口**一次，
+ * 旋转量按实车几何给（K = (横向半轮距 114 + 纵向半轮距 95.5)mm × π/180，见
+ * DRIFT_MM_PER_DEG），但辊子打滑、地面摩擦都会让它有误差，所以到位后用
+ * AGV_SetYaw(yaw0 + Δθ) **闭环收口**一次，
  * 把车头真正拉到目标朝向，并更新 AGV_Direction。
  *
  * ⚠ 本段**有意旋转**，绝不能进 Yaw_MovingOffset 窗口：那个量的语义是"本应为 0 的
@@ -231,13 +232,19 @@ void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir)
 #define DRIFT_PUL_PER_MM     (WHEEL_PULSES_PER_REV / WHEEL_CIRCUMFERENCE_MM)   /* ≈13.581 脉冲/mm */
 
 /* 车体转 1° 时每个轮子的行程(mm)：
-   轮子纵向安装（滚动方向沿车身前后），绕中心原地转时轮子的纵向速度分量 =
-   ω × 该轮到纵轴的距离 = ω × **横向**半轮距；纵向半轮距只产生横向速度、被 45° 辊子吃掉。
-       K = 114 × π/180 = 1.98968 mm/°   →   90° = 179.07mm/轮 ≈ 2432 脉冲
-   ⚠ 与 AGV_SetOmega() 的 51/50 对不上：1.02RPM/(°/s) 相当于力臂 229.5mm，
-   正好是**全轮距 228mm**（=2×114），把整个轮距当成了力臂、偏大一倍。转弯是 IMU 闭环、
-   偏大只影响环路增益所以没暴露；漂移是开环，必须用几何值。 */
-#define DRIFT_MM_PER_DEG     (WHEEL_HALF_TRACK_MM * CHASSIS_PI / 180.0f)
+   麦轮辊子轴线与车身成 45°，绕中心转时接地点速度 v = ω×r，
+   轮子行程 = (v·n)/(e_x·n)，而 e_x·n = ±1/√2 与约束式里的 1/√2 正好相消，于是
+       每轮行程 = ω × (**横向**半轮距 + **纵向**半轮距)
+   两项都进：纵向偏移经 45° 辊子耦合进了轮子行程，这正是经典麦轮逆解里的 (l1+l2)·ω。
+       K = (114 + 95.5) × π/180 = 3.65646 mm/°   →   90° = 329.08mm/轮 ≈ 4469 脉冲
+   ⚠ 2026-11-01 更正：这里原来只取横向半轮距（K = 1.98968mm/°，90° 只有 2432 脉冲），
+   等于把麦轮当成"只能沿车身前后滚的普通轮"，旋转量只有几何值的 0.54 倍：
+   弧线几乎走直、落点偏 1/3 车程（500mm 的 90° 漂移偏约 189mm，180° 偏约 456mm），
+   朝向虽被末尾 AGV_SetYaw() 兜住，但"边滑边转"退化成"直着走 + 末尾原地拧"。
+   ⚠ 别反过来向 AGV_SetOmega() 的 51/50 看齐：它反解出的力臂 229.5mm 只比这里的几何值
+   209.5mm 高 9.6%，陀螺闭环本来就吸收掉了，那个值其实基本是对的。
+   ⚠ 辊子打滑只会让实际转角偏小，标定只能在 209.5 之上再乘系数，不能比它小。 */
+#define DRIFT_MM_PER_DEG     ((WHEEL_HALF_TRACK_MM + WHEEL_HALF_WHEELBASE_MM) * CHASSIS_PI / 180.0f)
 
 /* 相邻朝向差 90°（AGV_Direction 一格），rotDeg 表由它推出来 */
 #define DRIFT_TURN_STEP_DEG  90.0f
@@ -441,6 +448,44 @@ void AGV_Position_Rotate(uint8_t dir)
 }
 
 void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
+{
+	/* tarDir = 该段走完后的绝对朝向：0:X+ 1:Y+ 2:X- 3:Y-。
+	   先归一化（4 当 0）：旧写法传 4 会一路传到 AGV_Turn()，而它只认 0~3，
+	   非法值在那里会落到"没有任何分支命中" → 该转的时候不转。 */
+	tarDir &= 3U;
+
+	for(uint8_t i = 0; i < Radar_Path[RouteID].count; i++)
+	{
+		uint16_t tarX = Points_X[Radar_Path[RouteID].points[i]];
+		uint16_t tarY = Points_Y[Radar_Path[RouteID].points[i]];
+		if(abs(tarX - AGV_Position_X) >= abs(tarY - AGV_Position_Y))
+		{
+			if(AGV_Direction == 1 || AGV_Direction == 3)
+			{
+				/* 车头朝 ±Y、本段要改走 X：在 X+/X- 里选【离最终朝向 tarDir 更近】的那个。
+				   原写法 abs(tarDir-2) >= abs(tarDir-4) + AGV_Turn(4) 有两个错：
+				   ① tarDir=0（要朝 X+）时条件为假 → 选成 X-(反着走)；
+				   ② 4 不是合法方向值（AGV_Turn 只认 0~3）。现已改成 0。 */
+				if(abs((int)tarDir - 2) >= abs((int)tarDir - 0))AGV_Turn(0);
+				else AGV_Turn(2);
+			}
+		}
+		else 
+		{
+			if(AGV_Direction == 0 || AGV_Direction == 2)
+			{
+				/* 同理：车头朝 ±X、要改走 Y 时，在 Y+/Y- 里选离 tarDir 更近的。
+				   这条原本就是对的，只补注释/显式 int 转换，逻辑不动。 */
+				if(abs((int)tarDir - 1) >= abs((int)tarDir - 3))AGV_Turn(3);
+				else AGV_Turn(1);
+			}
+		}
+		AGV_Position_Go(tarX, tarY, 0);
+	}
+	AGV_Turn(tarDir);
+}
+
+void AGV_Position_Cruise_Fast(uint8_t RouteID, uint8_t tarDir)
 {
 	/* tarDir = 该段走完后的绝对朝向：0:X+ 1:Y+ 2:X- 3:Y-。
 	   先归一化（4 当 0）：旧写法传 4 会一路传到 AGV_Turn()，而它只认 0~3，
