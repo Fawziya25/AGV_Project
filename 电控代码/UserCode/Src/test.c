@@ -1,4 +1,4 @@
-﻿
+
 /**
  * @file test.c
  * @brief 桌面测试入口 + 运行时调试服务（原 dbg.c 已并进本文件）
@@ -41,6 +41,7 @@
 #include "oled.h"                   /* OLED_Clear / OLED_ShowString / OLED_Refresh */
 #include "servo.h"                  /* Servo_InitId(SERVO_RADAR)：上电先把雷达舵机复位到收起位 */
 #include "radar_task.h"             /* 模式 10：Radar_Init / Radar_RunOnce / Radar_Path[5] */
+#include "menu.h"                   /* Menu_SwitchZone：入口页 C6 选启停区 */
 #include <stdint.h>
 #include <stdio.h>                  /* sprintf */
 
@@ -48,6 +49,8 @@
 #define START_KEY_PIN    GPIO_PIN_8      /* A8 启动 */
 #define DBG_KEY_GPIO     GPIOC
 #define DBG_KEY_PIN      GPIO_PIN_8      /* C8 暂停 */
+#define ZONE_KEY_GPIO    GPIOC
+#define ZONE_KEY_PIN     GPIO_PIN_6      /* C6 选启停区（和正式菜单一个键位） */
 
 #if DBG_ENABLE
 
@@ -383,37 +386,90 @@ static void Test_HwInit(void)
 #endif
 }
 
+/* ---------------- 通用按键消抖（启动入口页 / 模式 10 翻页共用） ----------------
+   15ms 一拍 + 连续 3 次同电平（≈45ms），只认"按下沿"，逻辑同 menu.c 的 Key_Scan。
+   armed：必须先见过一次"松开"才认按下 —— 否则**上电时就按着**这颗键（或抖动被读成常低）
+   会被当成一次新按键。
+   注：C8 在模式 10 里是"上一页"，而 TIM7 中断里它同时还是全局暂停键 —— 按下会顺带
+   悄悄翻一次 s_paused（test.h 第二节记过这条），测试模式下没有动作，无副作用。 */
+
 #define TEST_KEY_SCAN_MS   15U   /* 扫描周期，同 menu.c 的 KEY_SCAN_PERIOD_MS */
 #define TEST_KEY_DEBOUNCE  3U    /* 连续同电平次数，同 menu.c 的 KEY_DEBOUNCE_CNT */
 
+typedef struct {
+    GPIO_TypeDef *port;
+    uint16_t      pin;
+    uint8_t       prev;
+    uint8_t       cnt;
+    uint8_t       stable;
+    uint8_t       armed;
+} RadarTestKey;
+
+/* 消抖后的"按下沿"，逻辑同 menu.c 的 Key_Scan */
+static uint8_t RadarTest_KeyEdge(RadarTestKey *k)
+{
+    uint8_t raw = (HAL_GPIO_ReadPin(k->port, k->pin) == GPIO_PIN_RESET) ? 1U : 0U;
+    uint8_t press = 0U;
+
+    if(raw == k->prev)
+    {
+        if(k->cnt < TEST_KEY_DEBOUNCE) k->cnt++;
+        if(k->cnt >= TEST_KEY_DEBOUNCE && k->stable != raw)
+        {
+            k->stable = raw;
+            if(raw == 1U) { if(k->armed) press = 1U; }   /* 见过松开才认这次按下 */
+            else          { k->armed = 1U; }
+        }
+    }
+    else
+    {
+        k->prev = raw;
+        k->cnt = 0U;
+    }
+    return press;
+}
+
+/**
+ * @brief 跑测试前阻塞等 A8；页面上可以先用 **C6 选启停区**
+ * @note  这张页是**所有测试模式**共用的入口页，四行：
+ *            MODE n / zone: n / press A8 / to start
+ *        C6 换启停区调 `Menu_SwitchZone()`，和正式流程的启动菜单**同一套逻辑**：
+ *        雷达选区 + 该区位姿/出发点方格 + 小车初始坐标/朝向，一起换。
+ *        所以测试流程也能按 1/2 区跑（模式 1 走路线、模式 10 只看雷达）。
+ *
+ *        ⚠ 测试模式不走 `AGV_Init()`，也就没有 `Menu_Init()`，这里是它唯一能选区的机会；
+ *          而 `Test_AGV()` / `Test_Radar()` 自己还会再调 `Radar_Init()`，它末尾会把
+ *          启停区装回默认值 —— 那两个函数里已经各自把这里的区存下来再装回去了。
+ *        ⚠ 调用前必须先 `Radar_Init()`（Test_Switch 里已补），否则 C6 一按
+ *          `Radar_SetZone()` 里的位姿/路线设置就没有可用的 launch 上下文。
+ */
 static void Test_WaitStartKey(void)
 {
-    uint8_t prev = 0U, cnt = 0U, stable = 0U, armed = 0U, raw;
+    RadarTestKey key_start = { START_KEY_GPIO,  START_KEY_PIN,  0U, 0U, 0U, 0U };
+    RadarTestKey key_zone  = { ZONE_KEY_GPIO,   ZONE_KEY_PIN,   0U, 0U, 0U, 0U };
     char    buf[20];
 
     Dbg_Suspend();                       /* 屏幕归这里，别被 200ms 的刷屏节拍盖掉 */
 
     OLED_Clear();
     sprintf(buf, "MODE %d", (int)TEST_MODE);
-    OLED_ShowString(8, 16, (uint8_t *)buf,          16, 1);   /* 模式号：知道自己跑的哪个 */
+    OLED_ShowString(8, 0,  (uint8_t *)buf,          16, 1);   /* 模式号：知道自己跑的哪个 */
+    sprintf(buf, "zone: %u", (unsigned)Radar_GetZone());
+    OLED_ShowString(8, 16, (uint8_t *)buf,          16, 1);   /* 启停区：C6 改 */
     OLED_ShowString(8, 32, (uint8_t *)"press A8",   16, 1);
     OLED_ShowString(8, 48, (uint8_t *)"to start",   16, 1);
     OLED_Refresh();
 
     for(;;)
     {
-        raw = (HAL_GPIO_ReadPin(START_KEY_GPIO, START_KEY_PIN) == GPIO_PIN_RESET) ? 1U : 0U;
+        if(RadarTest_KeyEdge(&key_start)) break;             /* A8 稳定按下 → 启动 */
 
-        if(raw != prev) { prev = raw; cnt = 0U; }
-        else
+        if(RadarTest_KeyEdge(&key_zone))                     /* C6 → 换启停区 */
         {
-            if(cnt < TEST_KEY_DEBOUNCE) cnt++;
-            if(cnt >= TEST_KEY_DEBOUNCE && stable != raw)
-            {
-                stable = raw;
-                if(raw == 0U)      armed = 1U;   /* 先见过"松开"，这次按下才算数 */
-                else if(armed)     break;        /* 稳定为按下 → 启动 */
-            }
+            (void)Menu_SwitchZone();
+            sprintf(buf, "zone: %u", (unsigned)Radar_GetZone());
+            OLED_ShowString(8, 16, (uint8_t *)buf, 16, 1);
+            OLED_Refresh();
         }
         HAL_Delay(TEST_KEY_SCAN_MS);         /* 挂起期间这句不会再刷屏(见上面说明) */
     }
@@ -448,19 +504,26 @@ static void Test_WaitStartKey(void)
 static void Test_AGV(void)
 {
 #if TEST_AGV_WITH_RADAR
+    uint8_t zone = Radar_GetZone();      /* 入口页 C6 选的启停区（下面 Radar_Init 会冲掉，先存） */
+
     /* 雷达收放（舵机第 4 路 SERVO_RADAR = TIM4_CH1/PD12）：
        **0° = 伸出、340° = 收入车内**（角度在 radar_config.h 的 RADAR_SERVO_*）。
        按要求顺序：先伸出雷达 → 扫描 + 六段规划 → 收回车内 → 再开跑。
        Radar_SetDeployed() 内部先初始化这一路舵机（不碰机械臂三路），
        并阻塞到"转完 + 到位裕量"，所以返回时雷达确实到位了。 */
     Radar_SetDeployed(true);             /* 伸出（0°） */
-    Radar_Init();                        /* 选默认启停区 + 位姿 + 路线（不发帧） */
+    Radar_Init();                        /* 复位 launch + 装默认启停区（不发帧） */
+    if(zone != 0U)
+    {
+        (void)Radar_SetZone(zone);       /* 把入口页选的区装回去 */
+    }
     (void)Radar_RunOnce();               /* 握手→选区→设位姿→方格扫描→六段规划→STOP */
     Radar_SetDeployed(false);            /* 扫描/规划完，收入车内（340°） */
     HAL_Delay(500);                      /* 摘要再看 0.5s，然后直接开跑 */
 #endif
 
-    AGV_Position_Init();
+    AGV_Position_Init();                        /* 拐点表 + 按默认启停区摆一次坐标 */
+    AGV_Position_ApplyZone(Radar_GetZone());    /* 再按选定区摆一次（上面已把选的区装回） */
     HWT101_Init(&huart5); /* 初始化HWT101 */
 
     AGV_Position_Depart();       HAL_Delay(3000);
@@ -661,37 +724,8 @@ static void Test_Motor(void)
    要逐格路线用 Radar_ExpandLeg(段号, 缓冲, 容量)。
 
    注意：C8 在这里是"上一页"，而 TIM7 中断里 C8 还是全局暂停键 —— 按下会顺带
-   悄悄翻一次 s_paused（test.h 第二节记过这条），测试模式下没有动作，无副作用。 */
-typedef struct {
-    GPIO_TypeDef *port;
-    uint16_t      pin;
-    uint8_t       prev;
-    uint8_t       cnt;
-    uint8_t       stable;
-} RadarTestKey;
-
-/* 消抖后的"按下沿"，逻辑同 menu.c 的 Key_Scan（15ms 一拍 + 连续 3 次同电平） */
-static uint8_t RadarTest_KeyEdge(RadarTestKey *k)
-{
-    uint8_t raw = (HAL_GPIO_ReadPin(k->port, k->pin) == GPIO_PIN_RESET) ? 1U : 0U;
-    uint8_t press = 0U;
-
-    if(raw == k->prev)
-    {
-        if(k->cnt < TEST_KEY_DEBOUNCE) k->cnt++;
-        if(k->cnt >= TEST_KEY_DEBOUNCE && k->stable != raw)
-        {
-            k->stable = raw;
-            if(raw == 1U) press = 1U;
-        }
-    }
-    else
-    {
-        k->prev = raw;
-        k->cnt = 0U;
-    }
-    return press;
-}
+   悄悄翻一次 s_paused（test.h 第二节记过这条），测试模式下没有动作，无副作用。
+   按键消抖/按下沿判定用文件上方的 RadarTestKey + RadarTest_KeyEdge()。 */
 
 /* 页2：六段概览。6 段用 6x8 小字每行一段（16 像素字体一屏只能放 4 行，放不下 6 段）；
    标题行给出实际拿到的段数与失败码，一眼看出"是不是 5 段都成了"。 */
@@ -809,16 +843,22 @@ static void RadarTest_ShowPage(uint8_t page)
 
 static void Test_Radar(void)
 {
-    RadarTestKey key_next = { GPIOC, GPIO_PIN_6, 0U, 0U, 0U };   /* C6 下一页 */
-    RadarTestKey key_prev = { GPIOC, GPIO_PIN_8, 0U, 0U, 0U };   /* C8 上一页 */
-    RadarTestKey key_run  = { GPIOA, GPIO_PIN_8, 0U, 0U, 0U };   /* A8 重跑 */
+    RadarTestKey key_next = { GPIOC, GPIO_PIN_6, 0U, 0U, 0U, 0U };   /* C6 下一页 */
+    RadarTestKey key_prev = { GPIOC, GPIO_PIN_8, 0U, 0U, 0U, 0U };   /* C8 上一页 */
+    RadarTestKey key_run  = { GPIOA, GPIO_PIN_8, 0U, 0U, 0U, 0U };   /* A8 重跑 */
 
     for(;;)
     {
         uint8_t page = 0U;
         uint8_t rerun = 0U;
+        uint8_t zone;
 
+        zone = Radar_GetZone();     /* 入口页 C6 选的启停区（Radar_Init 会冲掉，先存） */
         Radar_Init();               /* 每次重跑都重新初始化（Launch_IsFinished 是粘滞的） */
+        if(zone != 0U)
+        {
+            (void)Radar_SetZone(zone);   /* 装回选的区；摘要页第 1 行的 zone 也就跟着对 */
+        }
         (void)Radar_RunOnce();      /* 进度页 + 六段摘要页由它自己显示（内部管 Dbg 挂起） */
 
         Dbg_Suspend();              /* 结果页归本函数，直到下次重跑 */
@@ -857,9 +897,13 @@ void Test_Switch(void)
     DWT_Init();         
     YawPID_Init(); 
 
+    /* 测试流程也要能选启停区：先初始化雷达客户端（不发帧），入口页的 C6 才有
+       Radar_SetZone() 可用的 launch 上下文。各测试自己还会再 Radar_Init() 一次。 */
+    Radar_Init();
+
     Test_WaitStartKey();
     Pick_Axis_Init();
-    switch(5)
+    switch(1)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正

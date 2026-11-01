@@ -30,6 +30,32 @@
 #define Waypoint_RF 2090, 2150     // 右上角目标点坐标
 #define Destination 165, 2285        // 目标点坐标
 
+/* ---------------- 启停区 → 小车在位姿（2026-11-01） ----------------
+   启动菜单只选启停区；选定后 AGV_Position_ApplyZone(zone) 一次装好三件事：
+   "车停在哪"(AGV_Position_X/Y)、"车头朝哪"(AGV_Direction)、"出发先开到哪个格"(Depart 首点)。
+   zone 编号与雷达 radar_config.h 的 RADAR_ZONEn_* 一致（1/2）。
+
+   ORIGIN_DIR  车头朝向 0:X+ 1:Y+ 2:X- 3:Y-
+   DEPART_GRID 停车位对应的拐点下标（Points_X/Points_Y 的索引），即 Depart 先对齐到哪一格；
+               ⚠ 必须与 radar_config.h 的 RADAR_ZONEn_START_GRID 保持一致（当前 1 区=4、2 区=0），
+                 将来改出发点方格时两边一起改。 */
+#define AGV_ZONE1_ORIGIN_X       150U     /* 区1：左下角停车位 */
+#define AGV_ZONE1_ORIGIN_Y       150U
+#define AGV_ZONE1_ORIGIN_DIR     3U       /* 朝 Y- */
+#define AGV_ZONE1_DEPART_GRID    4U       /* Points[4] = (310, 310) 左下角 */
+#define AGV_ZONE2_ORIGIN_X       150U     /* 区2：左上角停车位（上电默认，见 RADAR_ZONE_DEFAULT） */
+#define AGV_ZONE2_ORIGIN_Y       2250U
+#define AGV_ZONE2_ORIGIN_DIR     3U       /* 朝 Y- */
+#define AGV_ZONE2_DEPART_GRID    0U       /* Points[0] = (310, 2090) 左上角 */
+
+/* 小车当前坐标(mm)。menu.c 要在启动菜单上显示，故在此声明 */
+extern uint16_t AGV_Position_X;
+extern uint16_t AGV_Position_Y;
+
+/* 按启停区 1/2 设定小车初始坐标与车头朝向（其它值按区2处理）。
+   只动坐标/朝向/当前区号，不碰雷达；雷达那边由 Radar_SetZone() 管。 */
+void AGV_Position_ApplyZone(uint8_t zone);
+
 void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir);
 void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir);
 void AGV_Position_Rotate(uint8_t dir);

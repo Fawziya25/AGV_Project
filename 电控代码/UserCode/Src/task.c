@@ -18,7 +18,7 @@ uint8_t Route_id=0;
 
 /**
  * @brief 初始化AGV，包括DWT、CAN、OLED、HWT101
- *        末尾阻塞在 Menu_Init() 等 A8 启动（期间 C6/C8 切换路线）
+ *        末尾阻塞在 Menu_Init() 等 A8 启动（期间 C6 选启停区）
  * @note  航向PID不用在这里初始化：AGV_SetYaw() 每次转弯前自己装载增益、清状态
  *        （和 AGV_Correct() 内部调 PositionPID_Init() 一样）。真要清导航偏差
  *        补偿(yawOffset)再手动调一次 YawPID_Init()。
@@ -28,17 +28,28 @@ uint8_t Route_id=0;
  */
 void AGV_Init(void)
 {
+    uint8_t zone;
+
     OLED_Init();
     Dbg_Init();           /* 开TIM7调试服务:周期刷相机数据 + A8短按暂停/继续 */
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     DWT_Init();// 初始化DWT,用于微秒级延时
     AGV_Can_Init(); // 初始化CAN,用于电机通信
-    AGV_Position_Init(); // 初始化位置坐标系
+    AGV_Position_Init(); // 初始化位置坐标系（初始坐标跟着默认启停区走）
     HWT101_Init(&huart5);// 初始化HWT101
-    Radar_Init();           /* 雷达客户端初始化（不发帧）；在 Menu_Init 之前，菜单里要选起点方格 */
-    Menu_Init();            /* 阻塞等待A8启动，期间C6/C8切换路线 */
+    Radar_Init();           /* 雷达客户端初始化（不发帧）；在 Menu_Init 之前，菜单里要选启停区 */
+    Menu_Init();            /* 阻塞等 A8：C6 选启停区（含小车初始坐标），A8 确认启动 */
     Radar_SetDeployed(true);             /* 伸出（0°） */
-    Radar_Init();                        /* 选默认启停区 + 位姿 + 路线（不发帧） */
+    /* ⚠ Radar_Init() 末尾会把启停区装回 RADAR_ZONE_DEFAULT，菜单里选的那个会被冲掉：
+       先记下来，Init 之后再装回去，最后按**最终**区域把小车初始坐标/朝向摆好。
+       （AGV_Position_Init 里已按默认区摆过一次，这里以最终区为准覆盖。） */
+    zone = Radar_GetZone();
+    Radar_Init();                        /* 复位 launch 状态 + 装默认启停区（不发帧） */
+    if(zone != 0U)
+    {
+        (void)Radar_SetZone(zone);
+    }
+    AGV_Position_ApplyZone(Radar_GetZone());
     (void)Radar_RunOnce();               /* 握手→选区→设位姿→方格扫描→六段规划→STOP */
     Radar_SetDeployed(false);            /* 扫描/规划完，收入车内（300°） */
     Pick_Axis_Init(); // 步进电机两轴：当前物理位置(上电前放好的0位)=绝对零点，并清堵转/使能

@@ -1,4 +1,4 @@
-﻿#ifndef __RADAR_CONFIG_H
+#ifndef __RADAR_CONFIG_H
 #define __RADAR_CONFIG_H
 
 /*
@@ -23,7 +23,7 @@
 
 #define LAUNCH_NODE_ID            1U      /* 雷达节点ID，必须与雷达内保存的一致（单设备默认 1） */
 
-/* ---- 默认启停区（菜单阶段2 里可以用 C6 改成另一个）---- */
+/* ---- 默认启停区（启动菜单里可以用 C6 改成另一个）---- */
 
 #define RADAR_ZONE_DEFAULT        2U      /* 1 或 2 */
 

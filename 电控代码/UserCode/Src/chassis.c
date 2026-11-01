@@ -1,6 +1,7 @@
-#include "chassis.h"
+﻿#include "chassis.h"
 #include "Emm_V5.h"
 #include "delay.h"
+#include "radar_config.h"   /* RADAR_ZONE_DEFAULT：上电先按哪个启停区摆 */
 #include "radar_task.h"
 #include "stm32f4xx_hal.h"
 #include "yawPIDcontroller.h"
@@ -11,38 +12,65 @@
 uint16_t AGV_Position_X;
 uint16_t AGV_Position_Y;
 
+/* 当前启停区 1/2：AGV_Position_ApplyZone() 更新，AGV_Position_Depart() 用它选首点 */
+static uint8_t AGV_Zone = 2U;
+
 uint16_t Points_X[25];
 uint16_t Points_Y[25];
 
+/**
+ * @brief 按启停区设定小车初始坐标与车头朝向
+ * @param zone 启停区 1/2；其它值一律按区2（与 RADAR_ZONE_DEFAULT 一致）
+ * @note  只动"车在哪、朝哪"，雷达那边的选区/位姿由 Radar_SetZone() 管；
+ *        两区各自的坐标/朝向宏在 chassis.h 的 AGV_ZONEn_ORIGIN_*。
+ */
+void AGV_Position_ApplyZone(uint8_t zone)
+{
+	if(zone == 1U)
+	{
+		AGV_Zone       = 1U;
+		AGV_Position_X = AGV_ZONE1_ORIGIN_X;
+		AGV_Position_Y = AGV_ZONE1_ORIGIN_Y;
+		AGV_Direction  = (uint8_t)(AGV_ZONE1_ORIGIN_DIR & 3U);
+	}
+	else
+	{
+		AGV_Zone       = 2U;
+		AGV_Position_X = AGV_ZONE2_ORIGIN_X;
+		AGV_Position_Y = AGV_ZONE2_ORIGIN_Y;
+		AGV_Direction  = (uint8_t)(AGV_ZONE2_ORIGIN_DIR & 3U);
+	}
+}
+
 void AGV_Position_Init(void)
 {
-	// 小车初始坐标，需要根据启停区设置
-    AGV_Position_X = 150;
-    AGV_Position_Y = 2250;
-
 	// 所有拐点坐标(mm)
-	Points_X[0] = 400;
-	Points_Y[0] = 2000;
+	Points_X[0] = 310;
+	Points_Y[0] = 2090;
 	// 2: QRCode
-	Points_X[2] = 400;
+	Points_X[2] = 310;
 	Points_Y[2] = 1200;
-	Points_X[4] = 400;
-	Points_Y[4] = 400;
+	Points_X[4] = 310;
+	Points_Y[4] = 310;
 	// 10: Rough
 	Points_X[10] = 1200;
-	Points_Y[10] = 2100;
+	Points_Y[10] = 2090;
 	Points_X[12] = 1200;
 	Points_Y[12] = 1200;
 	// 14：Raw
 	Points_X[14] = 1200;
-	Points_Y[14] = 300;
-	Points_X[20] = 2000;
-	Points_Y[20] = 2000;
+	Points_Y[14] = 310;
+	Points_X[20] = 2090;
+	Points_Y[20] = 2090;
 	// 22: Temp
-	Points_X[22] = 2100;
+	Points_X[22] = 2090;
 	Points_Y[22] = 1200;
-	Points_X[24] = 2000;
-	Points_Y[24] = 400;
+	Points_X[24] = 2090;
+	Points_Y[24] = 310;
+
+	/* 小车初始坐标/朝向跟着启停区走，两区各有一套（chassis.h 的 AGV_ZONEn_ORIGIN_*）。
+	   这里先按默认区摆好；菜单里选了别的区会再由 AGV_Position_ApplyZone() 覆盖。 */
+	AGV_Position_ApplyZone((uint8_t)RADAR_ZONE_DEFAULT);
 }
 
 /**
@@ -278,18 +306,21 @@ void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
 		}
 		AGV_Position_Go(tarX, tarY, 0);
 	}
-	AGV_Turn(tarDir);
-
+	if(RouteID != 5) AGV_Turn(tarDir);
 }
 
 /**
- * @brief 出发
- * 
+ * @brief 出发：先对齐到本启停区的停车位格，再交给雷达规划的第一段
+ * @note  首点按启停区取（区1 = Points[4] 左下角、区2 = Points[0] 左上角，见
+ *        chassis.h 的 AGV_ZONEn_DEPART_GRID）；它必须和 radar_config.h 里该区的
+ *        RADAR_ZONEn_START_GRID 是同一格，否则"先开到出发点"和"规划从哪格出发"会打架。
  */
 void AGV_Position_Depart()
 {
-	// AGV_Position_Go(QRCode, 0);
-	AGV_Position_Go(Points_X[0], Points_Y[0], 0);
+	uint8_t g = (AGV_Zone == 1U) ? (uint8_t)AGV_ZONE1_DEPART_GRID
+	                             : (uint8_t)AGV_ZONE2_DEPART_GRID;
+
+	AGV_Position_Go(Points_X[g], Points_Y[g], 0);
 	AGV_Position_Cruise(0, 3);
 }
 
@@ -334,15 +365,19 @@ void AGV_Position_Temp_to_Raw()
 }
 
 /**
- * @brief 回到原点
- * 
+ * @brief 回到原点：走完雷达第 6 段后，再收回到**本启停区**的停车点
+ * @note  末点原来写死 (150, 2250)（区2 的停车位），区1 会被拉回区2 的位置；
+ *        现按 AGV_Zone 取本区停车坐标（chassis.h 的 AGV_ZONEn_ORIGIN_*）。
  */
 void AGV_Position_GoBack()
 {
+	uint16_t ox = (AGV_Zone == 1U) ? (uint16_t)AGV_ZONE1_ORIGIN_X : (uint16_t)AGV_ZONE2_ORIGIN_X;
+	uint16_t oy = (AGV_Zone == 1U) ? (uint16_t)AGV_ZONE1_ORIGIN_Y : (uint16_t)AGV_ZONE2_ORIGIN_Y;
+
 	AGV_Position_Translate(50, Vel, 1);
 	// AGV_Position_Go(Waypoint_RF, 0);
 	// AGV_TurnRight();
 	// AGV_Position_Go(Destination, 0);
 	AGV_Position_Cruise(5, 3);
-	AGV_Position_Go(150, 2250, 0);
+	AGV_Position_Go(ox, oy, 0);
 }
