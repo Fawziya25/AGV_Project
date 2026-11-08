@@ -1,4 +1,4 @@
-
+﻿
 /**
  * @file test.c
  * @brief 桌面测试入口 + 运行时调试服务（原 dbg.c 已并进本文件）
@@ -594,14 +594,41 @@ static void Test_Pick_Task(void)
     HWT101_Init(&huart5); /* 初始化HWT101 */
     
     QRcode_Task(); 
-    Pick_Correct();
-    //Pick_RAW();
-    Pick_RAW_PLUS();
-    //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
-            // Place_Correct_Low();
-            // Place_ROUGH();
-    //Place_Correct();
-    //Place_ROUGH();
+
+    //
+    // HAL_Delay(500);
+    // Pick_Gripper_Release();
+    //  Pick_Gripper_Grab();
+    // Pick_JumpTo POS_1;
+    // Pick_Gripper_Release();
+    // Pick_JumpTo POS_RUN;
+    // Pick_JumpTo POS_CAR;
+    // Pick_Gripper_Grab();
+    // HAL_Delay(500);
+    // Pick_Gripper_Release();
+    // Pick_JumpTo POS_RAW_B;
+    // Pick_Gripper_Grab();
+    // HAL_Delay(500);
+    // Pick_Gripper_Release();
+    // Pick_JumpTo POS_RAW_A;
+    // Pick_Gripper_Grab();
+    // HAL_Delay(500);
+    // Pick_Gripper_Release();
+    // Pick_JumpTo POS_RAW_C;
+
+    // Pick_Correct();
+    // //Pick_RAW();
+    // Pick_RAW_PLUS();
+    // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
+    //         // Place_Correct_Low();
+    //         // Place_ROUGH();
+    //Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    //Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
+    Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    //Place_Correct_Angle(); 
+    Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
+    Place_ROUGH();
+    Pick_ROUGH();
 
 }
 
@@ -903,14 +930,14 @@ void Test_Switch(void)
 
     Test_WaitStartKey();
     Pick_Axis_Init();
-    switch(1)
+    switch(6)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正
         case 3:  Test_Turn();        break;  //转向PID：左转90/右转90往复，增益在 yawPIDcontroller.h 的 KP/KI/KD
         case 4:  break;//不用
         case 5:  Test_Pick_POS_Test();  break; // 无视觉的夹爪位置调试
-        case 6:  break;//不用
+        case 6:  Test_Pick_Task();break;//
         case 7:  Test_Camera();      break;  //用到视觉的调试
         case 8:  QRcode_Task();       break;  //调用任意的测试函数
         case 9:  Test_Motor();       break;  //臂测试：高度/半径步进电机(0<->30mm往返)或转盘舵机(A/B/C槽)，靠看+尺子验方向和比例(不返回)

@@ -15,9 +15,9 @@
  *   Pick_RAW()       摆 POS_RAW_B → 开爪 → 死等 0x02 的 flag == Pick_Color[i] → 抓
  *   Pick_RAW_PLUS()  备用路线：摆 POS_OBSERVE_RAW_CENTER 读一次 0x03 三框颜色，
  *                    一次算出整条路线，分派给六个固定函数之一
- *                    （Pick_RAW_AAA/BBB/CCC/ABC/BCA/CAB）：抓 A/C 位配底盘移动
- *                    （同 Pick_RAW_A/C 的去程/归位顺序），同框连抓的三次之间底盘不动，
- *                    换框只走两框偏移之差、不回中位 —— 比逐块重问快得多
+ *                    （Pick_RAW_ABC/ACB/BAC/BCA/CAB/CBA，**名字 = 开局观测到的
+ *                    初始排列，不是要抓的框**）：抓取过程中底盘完全不动，
+ *                    只动臂和转盘
  * 详见各函数自己的注释。
  *
  * ── 2026-10-16 放置侧同样拆开 ──────────────────────────────────────
@@ -110,17 +110,31 @@ static void GrabRawBoxToCar(uint8_t box, uint8_t slot, uint8_t direct)
 
 /**
  * @brief 从车上第 slot 个槽取出并放到圆环
- * @param slot 槽下标 0=A, 1=B, 2=C
- * @param ring 目标圆环编号 (1/2/3)
+ * @param slot      槽下标 0=A, 1=B, 2=C
+ * @param ring      目标圆环编号 (1/2/3)
+ * @param next_slot 下一块要用的槽下标（has_next == 0 时不看这个值）
+ * @param has_next  1 = 后面还有一块要放：松爪前先把转盘转到 next_slot；
+ *                  0 = 这是最后一块，放完就松爪
  * @note  转盘方案下三个槽共用 POS_CAR 一个臂位姿，原先"A 槽夹出来要经过 B 槽"
  *        的绕行过渡位(POS_CAR_A_OUT)已不需要，删掉。
+ *
+ *        **换槽提前到松爪之前**（只对第 1、2 块，即后面还有料要放的时候）：
+ *        此时臂已经伸到圆环上方、离开了车体，转盘可以自由转下一槽；等
+ *        Pick_TurnTable_Set 内部那段 SERVO_T_SETTLE_MS 停稳延时走完，再松爪。
+ *        这样转盘的转动/停稳是和"松爪 → 回 POS_CAR"这段重叠掉的，下一块回到
+ *        POS_CAR 时槽位已经就位，省一次换槽等待。
+ *        最后一块没有"下一次"，仍然一到圆环就松爪。
  */
-static void PlaceToRing(uint8_t slot, uint8_t ring)
+static void PlaceToRing(uint8_t slot, uint8_t ring, uint8_t next_slot, uint8_t has_next)
 {
     Pick_TurnTable_Set(slot);       /* 先选槽 */
     Pick_JumpTo POS_CAR;            /* 再摆臂 */
     Pick_Gripper_Grab();
     MOVE_TO_RING(ring);
+    if(has_next)
+    {
+        Pick_TurnTable_Set(next_slot);  /* 臂在圆环处先转下一槽，转完停稳再松爪 */
+    }
     Pick_Gripper_Release();
 }
 
@@ -262,19 +276,19 @@ void Pick_RAW_C(uint8_t slot)
  * 颜色」实际要去 (初始格 + 3 - i) % 3 抓。三个颜色都齐时，结果只可能是六种：
  *
  *   初始排列(颜色在 A/B/C 的哪一格)   实际抓取顺序   函数
- *   A B C                             A A A         Pick_RAW_AAA
- *   B C A                             B B B         Pick_RAW_BBB
- *   C A B                             C C C         Pick_RAW_CCC
- *   A C B                             A B C         Pick_RAW_ABC
- *   B A C                             B C A         Pick_RAW_BCA
- *   C B A                             C A B         Pick_RAW_CAB
+ *   A B C                             A A A         Pick_RAW_ABC
+ *   A C B                             A B C         Pick_RAW_ACB
+ *   B A C                             B C A         Pick_RAW_BAC
+ *   B C A                             B B B         Pick_RAW_BCA
+ *   C A B                             C C C         Pick_RAW_CAB
+ *   C B A                             C A B         Pick_RAW_CBA
  *
- * 抓 A/C 位的每一块都要先把底盘挪到该框偏移位（纵向 + 横向，和 Pick_RAW_A/C
- * 的去程同一套），抓完再挪走；抓 B 位那块底盘不动。
- * 同一格连抓三次时，转盘会把下一块送到同一格，那三次之间底盘不动。
- * 换格时底盘只走「两框偏移之差」，不回中位 —— 相对旧版每块都回原位省掉大段行程。
- * A/C 两框的横向偏移相同、纵向相反(见文件顶部的 PICK_RAW_* 宏)，所以 A↔C
- * 之间**只有纵向移动**，不用横移，这正是 BCA / CAB 两条路线省下来的地方。
+ * ⚠ **函数名 = 开局在 POS_OBSERVE_RAW_CENTER 观测到的初始排列**（任务码第
+ * 0/1/2 色分别落在 A/B/C 哪一格），不是三次抓取实际去的框。抓哪些框写在函数体
+ * 里，由上面那条 −1 规律从名字推出来。
+ *
+ * 抓取过程中**底盘完全不动**：三块全靠臂自己伸到 A/B/C 位去取。以后要配底盘
+ * 移动再单独加，现在先留纯臂版本。
  */
 
 typedef enum
@@ -283,56 +297,6 @@ typedef enum
     RAW_BOX_B = 1,
     RAW_BOX_C = 2
 } RawBox;
-
-/* 各框相对基准位(中位)的底盘偏移(mm，带符号)：纵向 + = 向前，横向 + = 向左。
-   符号直接从顶部宏的 dir 推出来，改宏不用改这里。 */
-static int16_t Raw_StraightOffset(RawBox box)
-{
-    if(box == RAW_BOX_A)
-        return PICK_RAW_STRAIGHT_A_DIR ? (int16_t)PICK_RAW_STRAIGHT_MM : -(int16_t)PICK_RAW_STRAIGHT_MM;
-    if(box == RAW_BOX_C)
-        return PICK_RAW_STRAIGHT_C_DIR ? (int16_t)PICK_RAW_STRAIGHT_MM : -(int16_t)PICK_RAW_STRAIGHT_MM;
-    return 0;   /* B 位在正前方，底盘不用动 */
-}
-
-static int16_t Raw_SideOffset(RawBox box)
-{
-    if(box == RAW_BOX_A)
-        return PICK_RAW_SIDE_A_DIR ? (int16_t)PICK_RAW_SIDE_MM : -(int16_t)PICK_RAW_SIDE_MM;
-    if(box == RAW_BOX_C)
-        return PICK_RAW_SIDE_C_DIR ? (int16_t)PICK_RAW_SIDE_MM : -(int16_t)PICK_RAW_SIDE_MM;
-    return 0;
-}
-
-/* 底盘从 from 框的偏移位挪到 to 框的偏移位（相对量 = 两框偏移之差）。
-   GoStraight: 1=向前 0=向后；Translate: 1=向左 0=向右。
-   两条腿的**顺序**照抄 Pick_RAW_A/Pick_RAW_C：
-     去 A/C 位（离开中位）：先纵向、后横向；
-     回中位（to == B）      ：先横向、后纵向 —— 和原函数的归位完全一致，
-                              斜着退回到料架边会蹭。
-   某方向差值为 0 就一条命令都不发：A↔C 只有纵向，同框连抓整句空转。 */
-static void Raw_Chassis_Goto(RawBox from, RawBox to)
-{
-    int16_t ds = (int16_t)(Raw_StraightOffset(to) - Raw_StraightOffset(from));
-    int16_t dt = (int16_t)(Raw_SideOffset(to)     - Raw_SideOffset(from));
-
-    if(to == RAW_BOX_B)
-    {
-        /* 归位：先横向、后纵向 */
-        if(dt > 0)      AGV_Position_Translate((uint32_t)dt,    Vel, 1U);
-        else if(dt < 0) AGV_Position_Translate((uint32_t)(-dt), Vel, 0U);
-        if(ds > 0)      AGV_Position_GoStraight((uint32_t)ds,   Vel, 1U);
-        else if(ds < 0) AGV_Position_GoStraight((uint32_t)(-ds), Vel, 0U);
-    }
-    else
-    {
-        /* 去 A/C 位：先纵向、后横向 */
-        if(ds > 0)      AGV_Position_GoStraight((uint32_t)ds,   Vel, 1U);
-        else if(ds < 0) AGV_Position_GoStraight((uint32_t)(-ds), Vel, 0U);
-        if(dt > 0)      AGV_Position_Translate((uint32_t)dt,    Vel, 1U);
-        else if(dt < 0) AGV_Position_Translate((uint32_t)(-dt), Vel, 0U);
-    }
-}
 
 /* 臂动作：去 box 框抓一块，放进车上第 slot 槽。不碰底盘。
    夹爪在上一块 Release 之后停在 release 位(65°)——这个角度本来就是放开料块的角度，
@@ -353,79 +317,61 @@ static void Raw_PickAt(RawBox box, uint8_t slot)
 }
 
 /* ---- 六种固定路线 ----
-   名称就是三次抓取实际去的框。**每抓 A/C 位的一块，前面都有一条
-   Raw_Chassis_Goto 把底盘挪到该框偏移位**，抓 B 位那块底盘不动。
-   底盘只在换框时动、不回中位；最后一次抓完才归位（两条腿的顺序见
-   Raw_Chassis_Goto 的注释，与 Pick_RAW_A/C 的去程、归位一致）。
+   每条都只调三次 Raw_PickAt（臂 + 转盘），**底盘全程不动**。
    槽位固定按 0→1→2 先后放，与任务码第 i 色对应。
    进函数时夹爪停在 Pick_RAW_PLUS 摆的 observe 位；每抓完一块停在 release
    位，可以直接下探下一块（见 Raw_PickAt 注释）。
 
-   同框连抓(AAA/BBB/CCC)每抓完一块停 PICK_RAW_SAMEBOX_HOLD_MS(700ms)：
-   让料块在车上槽里落稳、夹爪松到位，再去转盘换下一个槽 —— 连抓时转盘马上
-   就要转，不等这一下容易把刚放下去的料拨歪。第三块抓完后面没有换槽动作，
-   就不用停了（省 700ms）。 */
-#define PICK_RAW_SAMEBOX_HOLD_MS   700U
+   同框连抓（Pick_RAW_ABC / BCA / CAB：三次都去同一个框）每抓完一块停
+   PICK_RAW_SAMEBOX_HOLD_MS(700ms)：让料块在车上槽里落稳、夹爪松到位，再去
+   转盘换下一个槽 —— 连抓时转盘马上就要转，不等这一下容易把刚放下去的料拨歪。
+   第三块抓完后面没有换槽动作，就不用停了（省 700ms）。 */
 
-void Pick_RAW_AAA(void)     /* 三次都抓 A 框 */
+void Pick_RAW_ABC(void)     /* 初始观测 A B C → 三次都抓 A 框 */
 {
-    Raw_Chassis_Goto(RAW_BOX_B, RAW_BOX_A);  /* 底盘去 A 位：先纵向、后横向 */
     Raw_PickAt(RAW_BOX_A, 0);
-    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);     /* 料块落稳再抓下一块 */
-    Raw_PickAt(RAW_BOX_A, 1);                /* 同框：转盘已把下一块送到 A，底盘不动 */
-    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
+    HAL_Delay(1000);     /* 料块落稳再抓下一块 */
+    Raw_PickAt(RAW_BOX_A, 1);                /* 同框：转盘已把下一块送到 A */
+    HAL_Delay(1000);
     Raw_PickAt(RAW_BOX_A, 2);
-    Raw_Chassis_Goto(RAW_BOX_A, RAW_BOX_B);  /* 归位：先横向、后纵向 */
 }
 
-void Pick_RAW_BBB(void)     /* 三次都抓 B 框：B 就在车头正前方，底盘全程不动 */
+void Pick_RAW_ACB(void)     /* 初始观测 A C B → A → B → C */
+{
+    Raw_PickAt(RAW_BOX_A, 0);
+    Raw_PickAt(RAW_BOX_B, 1);
+    Raw_PickAt(RAW_BOX_C, 2);
+}
+
+void Pick_RAW_BAC(void)     /* 初始观测 B A C → B → C → A */
 {
     Raw_PickAt(RAW_BOX_B, 0);
-    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
+    Raw_PickAt(RAW_BOX_C, 1);
+    Raw_PickAt(RAW_BOX_A, 2);
+}
+
+void Pick_RAW_BCA(void)     /* 初始观测 B C A → 三次都抓 B 框 */
+{
+    Raw_PickAt(RAW_BOX_B, 0);
+    HAL_Delay(1000);
     Raw_PickAt(RAW_BOX_B, 1);
-    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
+    HAL_Delay(1000);
     Raw_PickAt(RAW_BOX_B, 2);
 }
 
-void Pick_RAW_CCC(void)     /* 三次都抓 C 框 */
+void Pick_RAW_CAB(void)     /* 初始观测 C A B → 三次都抓 C 框 */
 {
-    Raw_Chassis_Goto(RAW_BOX_B, RAW_BOX_C);  /* 底盘去 C 位：先纵向、后横向 */
     Raw_PickAt(RAW_BOX_C, 0);
-    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
-    Raw_PickAt(RAW_BOX_C, 1);                /* 同框：底盘不动 */
-    HAL_Delay(PICK_RAW_SAMEBOX_HOLD_MS);
-    Raw_PickAt(RAW_BOX_C, 2);
-    Raw_Chassis_Goto(RAW_BOX_C, RAW_BOX_B);  /* 归位：先横向、后纵向 */
-}
-
-void Pick_RAW_ABC(void)     /* A → B → C */
-{
-    Raw_Chassis_Goto(RAW_BOX_B, RAW_BOX_A);  /* 去 A 位 */
-    Raw_PickAt(RAW_BOX_A, 0);
-    Raw_Chassis_Goto(RAW_BOX_A, RAW_BOX_B);  /* A 回中位（先横向、后纵向）*/
-    Raw_PickAt(RAW_BOX_B, 1);
-    Raw_Chassis_Goto(RAW_BOX_B, RAW_BOX_C);  /* 中位去 C 位（先纵向、后横向）*/
-    Raw_PickAt(RAW_BOX_C, 2);
-    Raw_Chassis_Goto(RAW_BOX_C, RAW_BOX_B);  /* 归位 */
-}
-
-void Pick_RAW_BCA(void)     /* B → C → A */
-{
-    Raw_PickAt(RAW_BOX_B, 0);                /* B 位，底盘不动 */
-    Raw_Chassis_Goto(RAW_BOX_B, RAW_BOX_C);  /* 去 C 位 */
+    HAL_Delay(1000);
     Raw_PickAt(RAW_BOX_C, 1);
-    Raw_Chassis_Goto(RAW_BOX_C, RAW_BOX_A);  /* C→A：两框横向偏移相同，只有纵向 */
-    Raw_PickAt(RAW_BOX_A, 2);
-    Raw_Chassis_Goto(RAW_BOX_A, RAW_BOX_B);  /* 归位 */
+    HAL_Delay(1000);
+    Raw_PickAt(RAW_BOX_C, 2);
 }
 
-void Pick_RAW_CAB(void)     /* C → A → B */
+void Pick_RAW_CBA(void)     /* 初始观测 C B A → C → A → B */
 {
-    Raw_Chassis_Goto(RAW_BOX_B, RAW_BOX_C);  /* 去 C 位 */
     Raw_PickAt(RAW_BOX_C, 0);
-    Raw_Chassis_Goto(RAW_BOX_C, RAW_BOX_A);  /* C→A：只有纵向 */
     Raw_PickAt(RAW_BOX_A, 1);
-    Raw_Chassis_Goto(RAW_BOX_A, RAW_BOX_B);  /* A 回中位（先横向、后纵向）*/
     Raw_PickAt(RAW_BOX_B, 2);
 }
 
@@ -434,13 +380,14 @@ void Pick_RAW_CAB(void)     /* C → A → B */
  * @note  流程：
  *        1) 摆 POS_OBSERVE_RAW_CENTER（高位、收臂，不挡相机），张开夹爪；
  *        2) **只问一次** 0x03，拿到三个框的初始颜色，下标 0/1/2 = A/B/C 框；
- *        3) 对任务码第 i 个颜色，算出它**现在**该去哪个框抓：
- *             在该颜色初始所在格上，减去已经抓走的 i 块（转盘索引 −1），
- *             即 seq[i] = (j0 + 3 - i) % 3，再转成 1/2/3(A/B/C)；
- *        4) 三个数只可能是六种组合之一，直接调对应函数：
- *              1-1-1 → Pick_RAW_AAA   2-2-2 → Pick_RAW_BBB   3-3-3 → Pick_RAW_CCC
- *              1-2-3 → Pick_RAW_ABC   2-3-1 → Pick_RAW_BCA   3-1-2 → Pick_RAW_CAB
- *           六条路线内部只在换框时动底盘，同框连抓时底盘全程不动，也不回中位。
+ *        3) 对任务码第 i 个颜色，记下它**开局时**落在哪个框：
+ *              pos[i] = 该颜色初始所在格 + 1（1=A 2=B 3=C）；
+ *              实际抓哪个框不在这里算 —— 六个函数自己按
+ *              (初始格 + 3 - 已抓块数) % 3 从名字推出来；
+ *        4) 三个数只可能是六种排列之一，直接调**同名**函数：
+ *              A B C → Pick_RAW_ABC   A C B → Pick_RAW_ACB   B A C → Pick_RAW_BAC
+ *              B C A → Pick_RAW_BCA   C A B → Pick_RAW_CAB   C B A → Pick_RAW_CBA
+ *           六条路线内部**底盘完全不动**，只动臂和转盘。
  *
  *        为什么能一次问完就算出来：原料转盘每抓走一块固定挪一格（方向已实测为
  *        索引 −1），三块的颜色排列因此只有 6 种，开局一次读数就足以定下整条路线；
@@ -456,14 +403,13 @@ void Pick_RAW_CAB(void)     /* C → A → B */
  */
 void Pick_RAW_PLUS(void)
 {
-    float    temp_yaw = ZeroBias_GetYaw();  /* 记录修正前的航向，修正后再回到此航向 */
     uint8_t *Pick_Color = Pick_Color_List();
     uint8_t  box[3];                    /* 开局读一次的三框颜色: 0=A 1=B 2=C */
-    uint8_t  seq[3];                    /* 第 i 块实际去哪个框：1=A 2=B 3=C */
+    uint8_t  pos[3];                    /* 任务码第 i 色开局落在哪个框：1=A 2=B 3=C */
 
     Pick_JumpTo POS_OBSERVE_RAW_CENTER;   /* 要看清三个框，得摆到观察位 */
     Pick_Gripper_Observe();             /* 张开，别挡住相机 */
-    HAL_Delay(2000);                    /* 等相机输出稳定(上电/切模式后头几帧不可信) */
+    HAL_Delay(1000);                    /* 等相机输出稳定(上电/切模式后头几帧不可信) */
 
     Cam_SwitchTo(03);           /* 相机没响应就不猜，直接收工 */
 
@@ -477,21 +423,18 @@ void Pick_RAW_PLUS(void)
         uint8_t k = 0U;
         while(k < 3U && box[k] != Pick_Color[i]) k++;   /* 这一色初始在第 k 格 */
 
-        /* 转盘每抓走一块按索引 −1 挪一格 → 第 i 块时它在 (k + 3 - i) % 3 格；
-           +1 转成 1=A 2=B 3=C */
-        seq[i] = (uint8_t)((k + 3U - i) % 3U) + 1U;
+        pos[i] = (uint8_t)(k + 1U);     /* 转成 1=A 2=B 3=C */
     }
 
-    /* 六种排列查表，一一对应上面的路线表 */
-    if     (seq[0] == 1U && seq[1] == 1U && seq[2] == 1U) Pick_RAW_AAA();
-    else if(seq[0] == 2U && seq[1] == 2U && seq[2] == 2U) Pick_RAW_BBB();
-    else if(seq[0] == 3U && seq[1] == 3U && seq[2] == 3U) Pick_RAW_CCC();
-    else if(seq[0] == 1U && seq[1] == 2U && seq[2] == 3U) Pick_RAW_ABC();
-    else if(seq[0] == 2U && seq[1] == 3U && seq[2] == 1U) Pick_RAW_BCA();
-    else if(seq[0] == 3U && seq[1] == 1U && seq[2] == 2U) Pick_RAW_CAB();
+    /* 六种初始排列查表，函数名就是这串数（见上面的路线表） */
+    if     (pos[0] == 1U && pos[1] == 2U && pos[2] == 3U) Pick_RAW_ABC();
+    else if(pos[0] == 1U && pos[1] == 3U && pos[2] == 2U) Pick_RAW_ACB();
+    else if(pos[0] == 2U && pos[1] == 1U && pos[2] == 3U) Pick_RAW_BAC();
+    else if(pos[0] == 2U && pos[1] == 3U && pos[2] == 1U) Pick_RAW_BCA();
+    else if(pos[0] == 3U && pos[1] == 1U && pos[2] == 2U) Pick_RAW_CAB();
+    else if(pos[0] == 3U && pos[1] == 2U && pos[2] == 1U) Pick_RAW_CBA();
 
     Pick_JumpTo POS_RUN;
-    AGV_SetYaw(temp_yaw);  /* 修正后回到修正前的航向 */
 }
 
 /**
@@ -617,13 +560,17 @@ void Place_Correct_Angle(void)
  *        三次放置：A→环, B→环, C→环（取料顺序 A 先出来）
  *        槽号 i 始终是「槽位下标」(0=A,1=B,2=C)，和 Pick_ROUGH / Place_TEMP /
  *        Pick_Color[] 同一套约定，这样放置完再拾取物块才能回到原槽位。
+ *
+ *        第 1、2 块放完松爪前就把转盘转到下一槽（见 PlaceToRing 的 next_slot），
+ *        第 3 块后面没有料了，直接放。换槽顺序仍是 0→1→2。
  */
 void Place_ROUGH(void)
 {
     uint8_t *Place_Color = (RerunFlag == 0) ? Place_Color1 : Place_Color2;
 
     for (int i = 0; i < 3; i++) {
-        PlaceToRing((uint8_t)i, Place_Color[i]);
+        uint8_t has_next = (uint8_t)(i < 2);
+        PlaceToRing((uint8_t)i, Place_Color[i], (uint8_t)((i + 1) % 3), has_next);
     }
 }
 

@@ -38,7 +38,7 @@
 #define SERVO_Z_RAMP_STEPS 30     /* 加减速段步数：越多，加减速距离越长、越缓 */
 #define SERVO_Z_RAMP_START 0.15f   /* 起步/收尾首步占 STEP_DEG 的比例(0~1)，越小起步越慢 */
 #define SERVO_Z_STEP_DEG   0.8f   /* 每步角度(°)，越小越慢 */
-#define SERVO_Z_STEP_MS    2      /* 每步间隔(ms)，越大越慢 */
+#define SERVO_Z_STEP_MS    3      /* 每步间隔(ms)，越大越慢 */
 #define SERVO_Z_SETTLE_MS  300    /* 到位后的物理到位裕量(ms) */
 
 /* --- 夹爪舵机 (TIM3_CH1 = PA6) --- */

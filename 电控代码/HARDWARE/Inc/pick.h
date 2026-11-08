@@ -6,36 +6,36 @@
 #define POS_RUN                ( 90.0f,  5.0f,   10.0f )   // 车移动时候位置
 
 //====================== 车上放置位置 =====================
-#define POS_CAR                ( 55.0f,  4.0f,   18.0f )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
+#define POS_CAR                ( 54.0f,  51.0f,   33.0f )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
 #define PICK_TURN_ANG_A         30.0f
 #define PICK_TURN_ANG_B        150.0f
 #define PICK_TURN_ANG_C        270.0f
 
 //====================== 原料区位置 =====================
-#define POS_RAW_A              (180.0f, 30.0f,  125.0f )   // 原料区抓取位置左前
-#define POS_RAW_B              (180.0f, 30.0f,    2.0f )   // 原料区抓取位置下
-#define POS_RAW_C              (180.0f, 30.0f,  125.0f )   // 原料区抓取位置右前
+#define POS_RAW_A              (195.0f, 77.0f,  155.0f )   // 原料区抓取位置左前
+#define POS_RAW_B              (180.0f, 80.0f,    1.0f )   // 原料区抓取位置下
+#define POS_RAW_C              (164.0f, 77.0f,  155.0f )   // 原料区抓取位置右前
 #define POS_OBSERVE_RAW_A      (180.0f,  5.0f,    2.0f )   // 原料区抓取位置下 之抓取A位置
 #define POS_OBSERVE_RAW_CENTER (180.0f,  5.0f,   95.0f )   // pick_plus时候的观察位置
 
 //====================== 圆环放置位置 =====================
-#define POS_1                  (218.0f, 121.0f,   83.0f )   // 圆环左边
-#define POS_2                  (180.0f, 121.0f,   18.0f )   // 圆环中间
-#define POS_3                  (138.0f, 121.0f,   83.0f )   // 圆环右边
-#define POS_1_HIGE             (220.0f,  61.0f,   80.0f )   // 圆环物块左边
-#define POS_2_HIGE             (180.0f,  61.0f,   18.0f )   // 圆环物块中间
-#define POS_3_HIGE             (140.0f,  61.0f,   80.0f )   // 圆环物块右边
-#define POS_OBSERVE_RING_LOW   (180.0f, 120.0f,   18.0f )   // 观察圆环位置 细修正时候
-#define POS_OBSERVE_RING_MIDDLE (180.0f, 60.0f,   18.0f )   // 观察暂存区上 料块位置
+#define POS_1                  (224.5f, 157.0f,   75.0f )   // 圆环左边
+#define POS_2                  (180.0f, 157.0f,   18.0f )   // 圆环中间
+#define POS_3                  (139.0f, 157.0f,   83.0f )   // 圆环右边
+#define POS_1_HIGE             (224.5f,  97.0f,   75.0f )   // 圆环物块左边
+#define POS_2_HIGE             (180.0f,  97.0f,   18.0f )   // 圆环物块中间
+#define POS_3_HIGE             (139.0f,  97.0f,   83.0f )   // 圆环物块右边
+#define POS_OBSERVE_RING_LOW   (180.0f, 140.0f,   18.0f )   // 观察圆环位置 细修正时候
+#define POS_OBSERVE_RING_MIDDLE (180.0f, 80.0f,   18.0f )   // 观察暂存区上 料块位置
 #define POS_OBSERVE_RING_HIGH  (180.0f,   5.0f,   18.0f )   // 观察三个圆环 粗修正的时候对角度修正的时候使用
 
 //====================== 夹爪舵机角度 =====================
-#define PICK_OBSERVE            10.0f   /* 张开观察 */
-#define PICK_GRAB              110.0f   /* 抓住物料 */
-#define PICK_RELEASE            65.0f   /* 放开物料 */
+#define PICK_OBSERVE            20.0f   /* 张开观察 */
+#define PICK_GRAB              121.0f   /* 抓住物料 */
+#define PICK_RELEASE            90.0f   /* 放开物料 */
 
 // 基础值修正
-#define SERVO_Z_BASE_OFFSET      0.0f   /* Z轴旋转舵机基础修正(°) */
+#define SERVO_Z_BASE_OFFSET      6.0f   /* Z轴旋转舵机基础修正(°) */
 #define SERVO_GRIP_BASE_OFFSET   0.0f   /* 夹爪舵机基础修正(°) */
 
 

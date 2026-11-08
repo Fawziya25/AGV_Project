@@ -99,23 +99,24 @@ void Pick_RAW_B(uint8_t slot);
 void Pick_RAW_C(uint8_t slot);
 
 /* 原料区取料（备用路线，当前未调用）：摆 POS_OBSERVE_RAW_CENTER 读一次三框颜色(0x03)，
-   按 (初始格 + 3 − 已抓块数) % 3 一次算出整条路线，再查表分派给下面六个函数。
+   记下任务码第 0/1/2 色开局各落在哪个框，再按这个排列查表分派给下面六个函数。
    切换方法见 pick_task.c 里它的注释。 */
 void Pick_RAW_PLUS(void);
 
-/* 六种固定抓取路线（名称 = 三次抓取实际去的框，槽按 0→1→2 依次放）：
-   每抓 A 位或 C 位的一块，都要先把底盘挪到该框偏移位（纵向 + 横向，和
-   Pick_RAW_A/Pick_RAW_C 的去程同一套），抓完再挪走；抓 B 位那块底盘不动。
-   AAA/BBB/CCC 是同一框连抓三次（前两者仍要先到位，到位后三次之间不动）；
-   ABC = A→B→C；BCA = B→C→A；CAB = C→A→B（C↔A 两框横向偏移相同，只有纵向移动）。
-   每条路线收工时都把底盘放回基准位，后续导航基准不漂。
+/* 六种固定抓取路线。⚠ **名称 = 开局观测到的初始排列**（任务码第 0/1/2 色分别
+   落在 A/B/C 哪一格），不是三次抓取实际去的框；三个槽固定按 0→1→2 依次放。
+   抓取过程中**底盘完全不动**，每条只调三次臂 + 转盘动作。
+   实际抓哪个框由转盘每抓一块挪一格（索引 −1）推出来：
+     观测 ABC → 抓 A A A      观测 ACB → 抓 A B C      观测 BAC → 抓 B C A
+     观测 BCA → 抓 B B B      观测 CAB → 抓 C C C      观测 CBA → 抓 C A B
+   ABC/BCA/CAB（同框连抓）每块之间停 700ms，等料块落稳、夹爪松到位。
    一般由 Pick_RAW_PLUS 分派，不用直接调。 */
-void Pick_RAW_AAA(void);
-void Pick_RAW_BBB(void);
-void Pick_RAW_CCC(void);
 void Pick_RAW_ABC(void);
+void Pick_RAW_ACB(void);
+void Pick_RAW_BAC(void);
 void Pick_RAW_BCA(void);
 void Pick_RAW_CAB(void);
+void Pick_RAW_CBA(void);
 
 /* 粗加工区放置前的视觉对正，拆成三步，固定顺序 High → Angle → Low → Place_ROUGH()：
 

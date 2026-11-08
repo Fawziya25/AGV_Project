@@ -15,14 +15,14 @@
    KI/KD 量级参考角度PID，先不动；抖动就降KP。
    限幅/积分限幅/死区同角度PID习惯。 */
 #define POS_PID_KP      0.20f   /* 参考角度PID的KP：误差1px→1.25RPM */
-#define POS_PID_KI      0.0f
+#define POS_PID_KI      0.03f
 #define POS_PID_KD      0.09f
 #define POS_PID_OUT_MAX 200.0f  /* 输出限幅：最大轮速RPM */
 #define POS_PID_INT_LIM 80.0f   /* 积分限幅(px) */
 /* 相机分辨率放大倍数：误差进PID前先除回旧像素比例。
    分辨率翻倍→同样物理偏差像素值×2，若直接进PID则P/I/D三项都×2，
    必须在入口统一缩放，物理行为才与原来一致。改分辨率时同步修改。 */
-#define POS_PX_SCALE    1.0f
+#define POS_PX_SCALE    2.0f
 /* ============================================================= */
 /* ============ 视觉闭环：控制节拍与对准判据 ============
    控制节拍 AGV_CTRL_TICK_MS：相机实测帧率~40fps，但 KP 按 10~20Hz 标定。

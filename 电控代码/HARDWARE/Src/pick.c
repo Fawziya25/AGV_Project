@@ -26,8 +26,8 @@
 /* 各电机速度/加速度(RPM)：可分别调节 */
 #define PICK_MOTOR_Z_VEL    1000   /* 高度电机速度；注意是原值100的10倍，不是注释里写的2倍 */
 #define PICK_MOTOR_Z_ACC    230  /* 高度电机加速度 */
-#define PICK_MOTOR_R_VEL    200   /* 半径电机速度，保持原样 */
-#define PICK_MOTOR_R_ACC    60    /* 半径电机加速度 */
+#define PICK_MOTOR_R_VEL    500   /* 半径电机速度，保持原样 */
+#define PICK_MOTOR_R_ACC    150    /* 半径电机加速度 */
 #define PICK_MOTOR_DONE_TMO 1000  /* 电机回执等待超时(ms) */
 #define PICK_SAFE_HEIGHT_MM 2.0f  /* 安全高度(mm)：每次动作先升到此高度再水平移动+转向 */
 
@@ -86,7 +86,7 @@ volatile int32_t  Pick_Diag_LastCpos   = 0;    /* 最近一次读回的 Z 位置
    按 60mm/圈 是 2.3 圈(合理)。 */
 #define PICK_MOTOR_Z_MM_PER_REV   60.0f   /* 一圈对应 60mm */
 #define PICK_MOTOR_Z_PUL_PER_REV  3200    /* 一圈脉冲数(16细分×1.8°) */
-#define PICK_MOTOR_Z_MAX_MM       130.0f  /* 高度行程上限 0~130mm */
+#define PICK_MOTOR_Z_MAX_MM       200.0f  /* 高度行程上限 0~130mm */
 #define PICK_MOTOR_Z_MM_PUL       ((int32_t)(PICK_MOTOR_Z_PUL_PER_REV / PICK_MOTOR_Z_MM_PER_REV)) /* 53脉冲/mm */
 /* ↑ 3200/60=53.33 被整数截断成 53，换算偏小约 0.6%(走 140mm 差 0.8mm)。
    要更准就得把这个宏和下面两处乘法的中间量改成浮点，等行程实测确认了再说。 */
