@@ -158,7 +158,7 @@ void Pick_Correct(void)
     Pick_Gripper_Observe();         /* 修正期间张开，别挡住相机 */
     if(Cam_SwitchTo(02)&&cam_flag!=0)  /* 偏差落到全局 dx/dy */
     {
-        AGV_Correct(3000);
+        AGV_Correct(2000);
     }
     Pick_Gripper_Release();         /* 修正完了，下去抓之前收成 release 位 */
 }
@@ -330,9 +330,9 @@ static void Raw_PickAt(RawBox box, uint8_t slot)
 void Pick_RAW_ABC(void)     /* 初始观测 A B C → 三次都抓 A 框 */
 {
     Raw_PickAt(RAW_BOX_A, 0);
-    HAL_Delay(1000);     /* 料块落稳再抓下一块 */
+    //HAL_Delay(1000);     /* 料块落稳再抓下一块 */
     Raw_PickAt(RAW_BOX_A, 1);                /* 同框：转盘已把下一块送到 A */
-    HAL_Delay(1000);
+    //HAL_Delay(1000);
     Raw_PickAt(RAW_BOX_A, 2);
 }
 
@@ -340,22 +340,25 @@ void Pick_RAW_ACB(void)     /* 初始观测 A C B → A → B → C */
 {
     Raw_PickAt(RAW_BOX_A, 0);
     Raw_PickAt(RAW_BOX_B, 1);
+    HAL_Delay(1000);
     Raw_PickAt(RAW_BOX_C, 2);
 }
 
 void Pick_RAW_BAC(void)     /* 初始观测 B A C → B → C → A */
 {
     Raw_PickAt(RAW_BOX_B, 0);
+    HAL_Delay(1000);
     Raw_PickAt(RAW_BOX_C, 1);
+    HAL_Delay(1000);
     Raw_PickAt(RAW_BOX_A, 2);
 }
 
 void Pick_RAW_BCA(void)     /* 初始观测 B C A → 三次都抓 B 框 */
 {
     Raw_PickAt(RAW_BOX_B, 0);
-    HAL_Delay(1000);
+    HAL_Delay(1300);
     Raw_PickAt(RAW_BOX_B, 1);
-    HAL_Delay(1000);
+    HAL_Delay(1300);
     Raw_PickAt(RAW_BOX_B, 2);
 }
 
@@ -371,6 +374,7 @@ void Pick_RAW_CAB(void)     /* 初始观测 C A B → 三次都抓 C 框 */
 void Pick_RAW_CBA(void)     /* 初始观测 C B A → C → A → B */
 {
     Raw_PickAt(RAW_BOX_C, 0);
+    HAL_Delay(1000);
     Raw_PickAt(RAW_BOX_A, 1);
     Raw_PickAt(RAW_BOX_B, 2);
 }
@@ -459,7 +463,7 @@ void Place_Correct_Low(void)
     Pick_Gripper_Observe();             /* 修正期间张开，别挡住相机 */
     if(Cam_SwitchTo(04))                /* 偏差落到全局 dx/dy */
     {
-        AGV_Correct(30000);
+        AGV_Correct(3000);
     }
     Pick_Gripper_Release();             /* 修正完了，下去放之前收成 release 位 */
 }
@@ -478,7 +482,7 @@ void Place_Correct_Low(void)
    直到 |err| 进死区(ANGLE_DB)或迭代用完。单次修正会残留一部分误差（相机的
    偏角本身有噪声、AGV_SetYaw 也有到位死区），叠到放置时就是斜着下爪。
    `PLACE_CORRECT_ANGLE_SGN` 跟相机侧的约定绑定：实车越修越歪就取反。 */
-#define PLACE_CORRECT_HIGH_MS               1000U   /* 高位圆环2 粗修正时间 */
+#define PLACE_CORRECT_HIGH_MS               500U   /* 高位圆环2 粗修正时间 */
 #define PLACE_CORRECT_ANGLE_SHIFT_MM        70U     /* 移位距离：沿车头方向 7cm */
 #define PLACE_CORRECT_ANGLE_SHIFT_DIR       1U      /* GoStraight: 1=向前(当作"左")，0=向后(当作"右") */
 #define PLACE_CORRECT_ANGLE_SGN             (-1.0f) /* 实车越修越歪 → 取反（已按实车改成 -1）*/
@@ -622,7 +626,7 @@ void Place_TEMP_Correct(void)
     Cam_Service();                      /* 原 Place_TEMP 里就有这句接收链自愈，照搬过来 */
     if(Cam_SwitchTo(05))
     {
-        AGV_Correct(5000);
+        AGV_Correct(2500);
     }
     Pick_Gripper_Release();             /* 修正完了，下去放之前收成 release 位 */
 }

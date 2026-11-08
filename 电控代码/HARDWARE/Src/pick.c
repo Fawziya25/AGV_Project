@@ -625,7 +625,7 @@ void Pick_Test_TurnTable(void)
     for(;;)
     {
         Pick_TurnTable_Set(slot);      /* 平滑转到 A/B/C 槽，内部自带 SERVO_T_SETTLE_MS 裕量 */
-        HAL_Delay(3000);               /* 停 3 秒：看停位准不准、量角度 */
+        HAL_Delay(1000);               /* 停 3 秒：看停位准不准、量角度 */
 
         slot++;
         if(slot > 2U) slot = 0U;       /* 0→1→2→0 循环 */

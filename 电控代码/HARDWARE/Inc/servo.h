@@ -36,10 +36,10 @@
 
 /* --- Z轴旋转舵机 (TIM1_CH1 = PE9) --- */
 #define SERVO_Z_RAMP_STEPS 30     /* 加减速段步数：越多，加减速距离越长、越缓 */
-#define SERVO_Z_RAMP_START 0.15f   /* 起步/收尾首步占 STEP_DEG 的比例(0~1)，越小起步越慢 */
+#define SERVO_Z_RAMP_START 0.2f   /* 起步/收尾首步占 STEP_DEG 的比例(0~1)，越小起步越慢 */
 #define SERVO_Z_STEP_DEG   0.8f   /* 每步角度(°)，越小越慢 */
-#define SERVO_Z_STEP_MS    3      /* 每步间隔(ms)，越大越慢 */
-#define SERVO_Z_SETTLE_MS  300    /* 到位后的物理到位裕量(ms) */
+#define SERVO_Z_STEP_MS    2.4      /* 每步间隔(ms)，越大越慢 */
+#define SERVO_Z_SETTLE_MS  500    /* 到位后的物理到位裕量(ms) */
 
 /* --- 夹爪舵机 (TIM3_CH1 = PA6) --- */
 #define SERVO_G_RAMP_STEPS 30     /* 同 Z轴：加减速段步数 */
@@ -49,11 +49,11 @@
 
 /* --- 车上转盘舵机 (TIM2_CH1 = PA5) ---
    量程 0°~270°，30°/150°/270° = A/B/C 槽，上电初值 0°=A */
-#define SERVO_T_RAMP_STEPS 0     /* 加减速段步数：0 = 匀速分步(无加减速)，见下面说明 */
-#define SERVO_T_RAMP_START 0.8f   /* 起步/收尾首步比例(RAMP_STEPS=0 时不起作用) */
+#define SERVO_T_RAMP_STEPS 20     /* 加减速段步数：0 = 匀速分步(无加减速)，见下面说明 */
+#define SERVO_T_RAMP_START 0.3f   /* 起步/收尾首步比例(RAMP_STEPS=0 时不起作用) */
 #define SERVO_T_STEP_DEG   0.8f   /* 每步角度(°) */
-#define SERVO_T_STEP_MS    2.0f      /* 每步间隔(ms)：0.8°/1ms ≈ 800°/s，120° 走 150ms */
-#define SERVO_T_SETTLE_MS  300    /* 到位后物理裕量(ms)：分步只保证命令发完，
+#define SERVO_T_STEP_MS    1.0f      /* 每步间隔(ms)：0.8°/1ms ≈ 800°/s，120° 走 150ms */
+#define SERVO_T_SETTLE_MS  100    /* 到位后物理裕量(ms)：分步只保证命令发完，
                                      舵机追命令有滞后，没停稳臂就下去会撞料。
                                      §8 定的就是 300，中间被改成过 0，现改回来。 */
 

@@ -592,7 +592,6 @@ static void Test_Pick_Task(void)
     Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     HWT101_Init(&huart5); /* 初始化HWT101 */
-    
     QRcode_Task(); 
 
     //
@@ -616,20 +615,20 @@ static void Test_Pick_Task(void)
     // Pick_Gripper_Release();
     // Pick_JumpTo POS_RAW_C;
 
-    // Pick_Correct();
-    // //Pick_RAW();
-    // Pick_RAW_PLUS();
+    Pick_Correct();
+    //Pick_RAW();
+    Pick_RAW_PLUS();
     // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
     //         // Place_Correct_Low();
     //         // Place_ROUGH();
     //Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
     //Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
-    Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    //Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
     //Place_Correct_Angle(); 
-    Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
-    Place_ROUGH();
-    Pick_ROUGH();
-
+    //Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
+    //Place_ROUGH();
+    //Pick_ROUGH();
+    Pick_JumpTo POS_START;
 }
 
 
@@ -706,11 +705,11 @@ static void Test_Motor(void)
 
     /* 五个子测试一次只能跑一个 —— 换就换注释（同一时刻只留一行没注释）。
        判读方法见 pick.c 里各自函数头上那段。高度/半径现在都是绝对位置模式。 */
-    Pick_Test_MotorZ();               /* 高度轴：死循环，不返回 */
-    Pick_Test_MotorR();             /* 半径轴：把上面那行注释掉、这行打开 */
+    //Pick_Test_MotorZ();               /* 高度轴：死循环，不返回 */
+    //Pick_Test_MotorR();             /* 半径轴：把上面那行注释掉、这行打开 */
     Pick_Test_TurnTable();          /* 转盘舵机：A(30°)/B(150°)/C(270°)，不需要 CAN */
-    Pick_Test_ZServo();             /* Z轴舵机：0°/100°/50°，不需要 CAN（臂先抬高）*/
-    Pick_Test_Gripper();            /* 夹爪：观察/抓紧/放开 走 3 轮停在抓紧，不需要 CAN */
+    //Pick_Test_ZServo();             /* Z轴舵机：0°/100°/50°，不需要 CAN（臂先抬高）*/
+    //Pick_Test_Gripper();            /* 夹爪：观察/抓紧/放开 走 3 轮停在抓紧，不需要 CAN */
 
 }
 
@@ -928,8 +927,8 @@ void Test_Switch(void)
        Radar_SetZone() 可用的 launch 上下文。各测试自己还会再 Radar_Init() 一次。 */
     Radar_Init();
 
-    Test_WaitStartKey();
-    Pick_Axis_Init();
+    //Test_WaitStartKey();
+    //Pick_Axis_Init();
     switch(6)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
