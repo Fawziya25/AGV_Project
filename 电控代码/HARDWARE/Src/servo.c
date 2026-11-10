@@ -173,6 +173,42 @@ static const ServoCfg servoCfg[4] = {
 
 static TIM_HandleTypeDef hServo[4] = {0};
 
+typedef struct
+{
+    volatile uint8_t active;
+    volatile uint8_t settling;
+    float startAngle;
+    float targetAngle;
+    float currentAngle;
+    float totalAngle;
+    float direction;
+    float accelLength;
+    float decelLength;
+    float stepDeg;
+    float startRatio;
+    uint16_t stepDelayMs;
+    uint16_t settleMs;
+    uint32_t lastStepTick;
+    uint32_t settleStartTick;
+    uint32_t guard;
+    uint32_t guardMax;
+} ServoMotion;
+
+static volatile ServoMotion servoMotion[4] = {0};
+
+static uint32_t Servo_EnterCritical(void)
+{
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    return primask;
+}
+
+static void Servo_ExitCritical(uint32_t primask)
+{
+    __DMB();
+    if((primask & 1U) == 0U) __enable_irq();
+}
+
 /* 该路舵机的基础修正值(°)：只有 Z轴、夹爪两路有，转盘/雷达恒为 0。
    数值在 pick.h 的 SERVO_Z_BASE_OFFSET / SERVO_GRIP_BASE_OFFSET，
    和 POS_* / PICK_* 那批姿态角放一起，重装舵机后只改那一个数。 */
@@ -213,6 +249,13 @@ static float Servo_PulseToAngle(ServoId id, const ServoCfg *c, uint32_t pulse)
  */
 static void Servo_TimInit(uint8_t id)
 {
+    if(id >= 4U) return;
+
+    uint32_t primask = Servo_EnterCritical();
+    servoMotion[id].active = 0U;
+    servoMotion[id].settling = 0U;
+    Servo_ExitCritical(primask);
+
     const ServoCfg *c = &servoCfg[id];
 
     if(c->tim == TIM1)       __HAL_RCC_TIM1_CLK_ENABLE();
@@ -280,13 +323,23 @@ void Servo_Init(void)
     Servo_TimInit(SERVO_RADAR);   /* 雷达收放：上电复位到 340°(收起) */
 }
 
-void Servo_SetAngle(ServoId id, float angle)
+static void Servo_WriteAngle(ServoId id, float angle)
 {
-    if(id > SERVO_RADAR) return;
     const ServoCfg *c = &servoCfg[id];
     if(angle > c->maxAngle) angle = c->maxAngle;
     if(angle < c->minAngle) angle = c->minAngle;
     __HAL_TIM_SET_COMPARE(&hServo[id], c->channel, Servo_AngleToPulse(id, c, angle));
+}
+
+void Servo_SetAngle(ServoId id, float angle)
+{
+    if(id > SERVO_RADAR) return;
+
+    uint32_t primask = Servo_EnterCritical();
+    servoMotion[id].active = 0U;
+    servoMotion[id].settling = 0U;
+    Servo_WriteAngle(id, angle);
+    Servo_ExitCritical(primask);
 }
 
 /**
@@ -314,6 +367,12 @@ float Servo_GetAngle(ServoId id)
 void Servo_SetAngleSmooth(ServoId id, float angle, float stepDeg, uint16_t stepDelayMs)
 {
     if(id > SERVO_RADAR) return;
+
+    uint32_t primask = Servo_EnterCritical();
+    servoMotion[id].active = 0U;
+    servoMotion[id].settling = 0U;
+    Servo_ExitCritical(primask);
+
     if(stepDeg <= 0.0f) { Servo_SetAngle(id, angle); return; }
     const ServoCfg *c = &servoCfg[id];
 
@@ -365,5 +424,168 @@ void Servo_SetAngleSmooth(ServoId id, float angle, float stepDeg, uint16_t stepD
         Servo_SetAngle(id, cur);
         HAL_Delay(stepDelayMs);
         if(++guard > guardMax) break;        /* 防死循环 */
+    }
+}
+
+/**
+ * @brief 启动非阻塞平滑转动
+ * @note  步进和停稳计时由 1ms 的 Servo_Service() 推进；本函数只初始化状态后立即返回。
+ */
+void Servo_SetAngleSmoothAsync(ServoId id, float angle, float stepDeg,
+                               uint16_t stepDelayMs, uint16_t settleMs)
+{
+    if(id > SERVO_RADAR || !Servo_IsReady(id)) return;
+
+    const ServoCfg *c = &servoCfg[id];
+    if(angle > c->maxAngle) angle = c->maxAngle;
+    if(angle < c->minAngle) angle = c->minAngle;
+    if(stepDelayMs == 0U) stepDelayMs = 1U;
+
+    uint32_t primask = Servo_EnterCritical();
+    volatile ServoMotion *m = &servoMotion[id];
+
+    /* 重复下发当前目标时不要重启曲线或停稳计时。 */
+    if((m->active != 0U || m->settling != 0U) &&
+       (fabsf(m->targetAngle - angle) < 1e-3f))
+    {
+        Servo_ExitCritical(primask);
+        return;
+    }
+
+    float start = Servo_GetAngle(id);
+    float total = fabsf(angle - start);
+    if(stepDeg <= 0.0f || total < 1e-3f)
+    {
+        Servo_WriteAngle(id, angle);
+        m->startAngle = start;
+        m->targetAngle = angle;
+        m->currentAngle = angle;
+        m->totalAngle = total;
+        m->settleMs = settleMs;
+        m->settleStartTick = HAL_GetTick();
+        m->active = 0U;
+        __DMB();
+        m->settling = (settleMs > 0U) ? 1U : 0U;
+        Servo_ExitCritical(primask);
+        return;
+    }
+
+    float direction = (angle >= start) ? 1.0f : -1.0f;
+    uint8_t rampSteps = c->rampSteps;
+    float startRatio = c->rampStart;
+    if(rampSteps == 0U) startRatio = 1.0f;
+    if(startRatio <= 0.0f) startRatio = 0.01f;
+
+    float rampLength = (float)rampSteps * stepDeg;
+    float accelLength;
+    float decelLength;
+    if(total >= 2.0f * rampLength)
+    {
+        accelLength = rampLength;
+        decelLength = rampLength;
+    }
+    else
+    {
+        accelLength = total * 0.5f;
+        decelLength = total * 0.5f;
+    }
+
+    float guardLimit = total / (stepDeg * startRatio) + 20.0f;
+    uint32_t guardMax = (uint32_t)guardLimit;
+
+    m->startAngle = start;
+    m->targetAngle = angle;
+    m->currentAngle = start;
+    m->totalAngle = total;
+    m->direction = direction;
+    m->accelLength = accelLength;
+    m->decelLength = decelLength;
+    m->stepDeg = stepDeg;
+    m->startRatio = startRatio;
+    m->stepDelayMs = stepDelayMs;
+    m->settleMs = settleMs;
+    m->lastStepTick = HAL_GetTick();
+    m->settleStartTick = 0U;
+    m->guard = 0U;
+    m->guardMax = guardMax;
+    m->settling = 0U;
+    __DMB();
+    m->active = 1U;
+    Servo_ExitCritical(primask);
+}
+
+bool Servo_IsBusy(ServoId id)
+{
+    if(id > SERVO_RADAR) return false;
+    return (servoMotion[id].active != 0U || servoMotion[id].settling != 0U);
+}
+
+/**
+ * @brief 非阻塞舵机运动服务
+ * @note  每 1ms 由 SysTick 调用；只更新到期的一个步进，不做延时或等待。
+ */
+void Servo_Service(void)
+{
+    uint32_t now = HAL_GetTick();
+
+    for(uint8_t id = 0U; id <= (uint8_t)SERVO_RADAR; id++)
+    {
+        volatile ServoMotion *m = &servoMotion[id];
+
+        if(m->settling != 0U &&
+           (uint32_t)(now - m->settleStartTick) >= m->settleMs)
+        {
+            m->settling = 0U;
+        }
+
+        if(m->active == 0U ||
+           (uint32_t)(now - m->lastStepTick) < m->stepDelayMs)
+        {
+            continue;
+        }
+        m->lastStepTick = now;
+
+        float moved = fabsf(m->currentAngle - m->startAngle);
+        float remain = m->totalAngle - moved;
+        if(remain <= 0.0f)
+        {
+            m->currentAngle = m->targetAngle;
+            Servo_WriteAngle((ServoId)id, m->targetAngle);
+            m->settleStartTick = now;
+            m->active = 0U;
+            m->settling = (m->settleMs > 0U) ? 1U : 0U;
+            continue;
+        }
+
+        float step;
+        if(moved < m->accelLength)
+        {
+            step = m->stepDeg *
+                   (m->startRatio + (1.0f - m->startRatio) * (moved / m->accelLength));
+        }
+        else if(remain <= m->decelLength)
+        {
+            step = m->stepDeg *
+                   (m->startRatio + (1.0f - m->startRatio) * (remain / m->decelLength));
+        }
+        else
+        {
+            step = m->stepDeg;
+        }
+
+        if(step > remain) step = remain;
+        m->currentAngle += m->direction * step;
+        Servo_WriteAngle((ServoId)id, m->currentAngle);
+        m->guard++;
+
+        if(fabsf(m->currentAngle - m->startAngle) >= m->totalAngle - 1e-3f ||
+           m->guard > m->guardMax)
+        {
+            m->currentAngle = m->targetAngle;
+            Servo_WriteAngle((ServoId)id, m->targetAngle);
+            m->settleStartTick = now;
+            m->active = 0U;
+            m->settling = (m->settleMs > 0U) ? 1U : 0U;
+        }
     }
 }

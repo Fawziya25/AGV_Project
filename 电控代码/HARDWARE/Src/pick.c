@@ -24,8 +24,8 @@
 #define PICK_MOTOR_Z_POS_DIR  0
 #define PICK_MOTOR_R_POS_DIR  0
 /* 各电机速度/加速度(RPM)：可分别调节 */
-#define PICK_MOTOR_Z_VEL    1000   /* 高度电机速度；注意是原值100的10倍，不是注释里写的2倍 */
-#define PICK_MOTOR_Z_ACC    230  /* 高度电机加速度 */
+#define PICK_MOTOR_Z_VEL    800   /* 高度电机速度；注意是原值100的10倍，不是注释里写的2倍 */
+#define PICK_MOTOR_Z_ACC    240  /* 高度电机加速度 */
 #define PICK_MOTOR_R_VEL    500   /* 半径电机速度，保持原样 */
 #define PICK_MOTOR_R_ACC    150    /* 半径电机加速度 */
 #define PICK_MOTOR_DONE_TMO 1000  /* 电机回执等待超时(ms) */
@@ -504,22 +504,34 @@ void Pick_Gripper_Release(void)
 /* ==================== 车上转盘 ==================== */
 
 /**
- * @brief 转盘选槽：把车上转盘转到第 slot 个槽位，阻塞到停稳
+ * @brief 非阻塞启动转盘选槽：把转盘转到第 slot 个槽位后立即返回
  * @param slot 0=A(30°) / 1=B(150°) / 2=C(270°)，越界按 A 处理
- * @note  **平滑转动**（Servo_SetAngleSmooth）+ SERVO_T_SETTLE_MS 到位裕量，
- *        与 Pick_JumpTo 对 Z 舵机的处理一致。2026-10-14 中间短暂改成过直给
- *        (Servo_SetAngle)，已按设计撤回到平滑 —— 参数在 servo.h 的 SERVO_T_* 一组。
- *        Servo_SetAngleSmooth 只保证"命令角发出去了"，舵机追命令还有滞后，
- *        转盘带着料没停稳臂就下去会撞 —— **下面的 HAL_Delay 不能删**。
- *        角度钳位由 Servo_SetAngleSmooth 自己做（超出 0~270 会被钳住）。
- *        时序约定：先本函数选槽，再 Pick_JumpTo POS_CAR —— 转盘转动时臂不在车体上方。
+ * @note  平滑步进由 SysTick 中的 Servo_Service() 异步推进，SERVO_T_SETTLE_MS 停稳
+ *        裕量也由舵机状态机计时，**本函数发完命令立即返回**。
+ *        正式流程不再等它：随后的 Pick_JumpTo POS_CAR 是 Π 形抬升，耗时数秒，
+ *        远长于一个槽 120° 约 1s 的行程，转盘转完时臂还没到车体上方。
+ *        只有测试或特殊场合要强制同步时才调 Pick_TurnTable_Wait()。
  */
 void Pick_TurnTable_Set(uint8_t slot)
 {
     static const float ang[3] = { PICK_TURN_ANG_A, PICK_TURN_ANG_B, PICK_TURN_ANG_C };
     if(slot > 2U) slot = 0U;
-    Servo_SetAngleSmooth(SERVO_TURN, ang[slot], SERVO_T_STEP_DEG, SERVO_T_STEP_MS);
-    HAL_Delay(SERVO_T_SETTLE_MS);
+    Servo_SetAngleSmoothAsync(SERVO_TURN, ang[slot], SERVO_T_STEP_DEG,
+                              (uint16_t)(SERVO_T_STEP_MS + 0.5f),   /* 四舍五入，别把 3.5ms 截成 3ms */
+                              SERVO_T_SETTLE_MS);
+}
+
+uint8_t Pick_TurnTable_IsBusy(void)
+{
+    return Servo_IsBusy(SERVO_TURN) ? 1U : 0U;
+}
+
+void Pick_TurnTable_Wait(void)
+{
+    while(Pick_TurnTable_IsBusy() != 0U)
+    {
+        HAL_Delay(1U);
+    }
 }
 
 /* ==================== 测试函数 ==================== */
@@ -610,12 +622,11 @@ void Pick_Test_MotorR(void)
  *             看有没有卡住/丢步。
  *        每步之间停 3 秒，方便量角度、对位置。
  *
- *        **跑之前确认臂不在车体上方。** Pick_TurnTable_Set() 的时序约定是"先选槽，
- *        再 Pick_JumpTo POS_CAR"—— 转盘带着料转的时候臂压在上面会把料扫飞。
- *        Test_Motor() 里 Pick_Init() 已经把臂收到 POS_START(运输位)，是安全的；
+ *        **跑之前确认臂不在车体上方。** Pick_TurnTable_Set() 非阻塞；需要在转盘停稳
+ *        后再让机械臂进入 POS_CAR。Test_Motor() 里 Pick_Init() 已把臂收到 POS_START，安全；
  *        要单独调这个函数就自己先把臂挪开。
  *
- * @note  依赖 Servo_Init() 已就绪（Servo_SetAngleSmooth 要求 PWM 已经起着）。
+ * @note  依赖 Servo_Init() 已就绪（非阻塞舵机命令要求 PWM 已经起着）。
  *        **不需要 CAN** —— 纯舵机测试，跟步进电机没关系。
  */
 void Pick_Test_TurnTable(void)
@@ -624,8 +635,9 @@ void Pick_Test_TurnTable(void)
 
     for(;;)
     {
-        Pick_TurnTable_Set(slot);      /* 平滑转到 A/B/C 槽，内部自带 SERVO_T_SETTLE_MS 裕量 */
-        HAL_Delay(1000);               /* 停 3 秒：看停位准不准、量角度 */
+        Pick_TurnTable_Set(slot);      /* 非阻塞启动平滑转动 */
+        Pick_TurnTable_Wait();         /* 测试中显式等待转盘停稳 */
+        HAL_Delay(1000);               /* 留出观察时间 */
 
         slot++;
         if(slot > 2U) slot = 0U;       /* 0→1→2→0 循环 */

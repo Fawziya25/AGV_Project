@@ -102,9 +102,9 @@ static void GrabRawBoxToCar(uint8_t box, uint8_t slot, uint8_t direct)
         case 1:  if(direct) Pick_MoveTo POS_RAW_B; else Pick_JumpTo POS_RAW_B; break;
         default: if(direct) Pick_MoveTo POS_RAW_C; else Pick_JumpTo POS_RAW_C; break;
     }
-    Pick_TurnTable_Set(slot);       /* 先选槽 */
-    Pick_Gripper_Grab();
-    Pick_JumpTo POS_CAR;            /* 再摆臂（往车上走一律抬起来） */
+    Pick_TurnTable_Set(slot);       /* 启动选槽，非阻塞：转盘后台转 */
+    Pick_Gripper_Grab();            /* 夹爪收拢与转盘转动并行 */
+    Pick_JumpTo POS_CAR;            /* 再摆臂（Π 形抬升，耗时远长于换槽） */
     Pick_Gripper_Release();
 }
 
@@ -119,21 +119,20 @@ static void GrabRawBoxToCar(uint8_t box, uint8_t slot, uint8_t direct)
  *        的绕行过渡位(POS_CAR_A_OUT)已不需要，删掉。
  *
  *        **换槽提前到松爪之前**（只对第 1、2 块，即后面还有料要放的时候）：
- *        此时臂已经伸到圆环上方、离开了车体，转盘可以自由转下一槽；等
- *        Pick_TurnTable_Set 内部那段 SERVO_T_SETTLE_MS 停稳延时走完，再松爪。
- *        这样转盘的转动/停稳是和"松爪 → 回 POS_CAR"这段重叠掉的，下一块回到
- *        POS_CAR 时槽位已经就位，省一次换槽等待。
+ *        此时臂已经伸到圆环上方、离开了车体，转盘可以自由转下一槽。
+ *        Pick_TurnTable_Set 非阻塞启动转动，与松爪、回 POS_CAR 这段完全重叠，
+ *        下一块回到 POS_CAR 时槽位早就换好了 —— 全程没有任何等待。
  *        最后一块没有"下一次"，仍然一到圆环就松爪。
  */
 static void PlaceToRing(uint8_t slot, uint8_t ring, uint8_t next_slot, uint8_t has_next)
 {
-    Pick_TurnTable_Set(slot);       /* 先选槽 */
+    Pick_TurnTable_Set(slot);       /* 启动选槽，非阻塞 */
     Pick_JumpTo POS_CAR;            /* 再摆臂 */
     Pick_Gripper_Grab();
     MOVE_TO_RING(ring);
     if(has_next)
     {
-        Pick_TurnTable_Set(next_slot);  /* 臂在圆环处先转下一槽，转完停稳再松爪 */
+        Pick_TurnTable_Set(next_slot);  /* 臂在圆环处非阻塞启动下一槽，和松爪并行 */
     }
     Pick_Gripper_Release();
 }
@@ -223,8 +222,8 @@ void Pick_RAW_A(uint8_t slot)
     AGV_Position_Translate(PICK_RAW_SIDE_MM, Vel, PICK_RAW_SIDE_A_DIR);           /* 再横向 3cm */
 
     Pick_JumpTo POS_RAW_A;
-    Pick_TurnTable_Set(slot);       /* 臂还在原料区时转盘选槽，不会碰到臂 */
-    Pick_Gripper_Grab();
+    Pick_TurnTable_Set(slot);       /* 臂还在原料区时启动转盘选槽 */
+    Pick_Gripper_Grab();            /* 与转盘转动并行 */
     Pick_JumpTo POS_CAR;
     Pick_Gripper_Release();
 
@@ -241,8 +240,8 @@ void Pick_RAW_A(uint8_t slot)
 void Pick_RAW_B(uint8_t slot)
 {
     Pick_JumpTo POS_RAW_B;
-    Pick_TurnTable_Set(slot);
-    Pick_Gripper_Grab();
+    Pick_TurnTable_Set(slot);       /* 启动选槽，非阻塞 */
+    Pick_Gripper_Grab();            /* 与转盘转动并行 */
     Pick_JumpTo POS_CAR;
     Pick_Gripper_Release();
 }
@@ -260,8 +259,8 @@ void Pick_RAW_C(uint8_t slot)
     AGV_Position_Translate(PICK_RAW_SIDE_MM, Vel, PICK_RAW_SIDE_C_DIR);           /* 再横向 3cm */
 
     Pick_JumpTo POS_RAW_C;
-    Pick_TurnTable_Set(slot);
-    Pick_Gripper_Grab();
+    Pick_TurnTable_Set(slot);       /* 启动选槽，非阻塞 */
+    Pick_Gripper_Grab();            /* 与转盘转动并行 */
     Pick_JumpTo POS_CAR;
     Pick_Gripper_Release();
 
@@ -310,8 +309,8 @@ static void Raw_PickAt(RawBox box, uint8_t slot)
         case RAW_BOX_C: Pick_JumpTo POS_RAW_C; break;
         default:        Pick_JumpTo POS_RAW_B; break;
     }
-    Pick_TurnTable_Set(slot);       /* 臂还在原料区时转盘选槽，不会碰到臂 */
-    Pick_Gripper_Grab();
+    Pick_TurnTable_Set(slot);       /* 臂还在原料区时启动转盘选槽 */
+    Pick_Gripper_Grab();            /* 与转盘转动并行 */
     Pick_JumpTo POS_CAR;
     Pick_Gripper_Release();
 }
@@ -322,61 +321,77 @@ static void Raw_PickAt(RawBox box, uint8_t slot)
    进函数时夹爪停在 Pick_RAW_PLUS 摆的 observe 位；每抓完一块停在 release
    位，可以直接下探下一块（见 Raw_PickAt 注释）。
 
-   同框连抓（Pick_RAW_ABC / BCA / CAB：三次都去同一个框）每抓完一块停
-   PICK_RAW_SAMEBOX_HOLD_MS(700ms)：让料块在车上槽里落稳、夹爪松到位，再去
-   转盘换下一个槽 —— 连抓时转盘马上就要转，不等这一下容易把刚放下去的料拨歪。
-   第三块抓完后面没有换槽动作，就不用停了（省 700ms）。 */
+   使用宏 PICK_RAW_PLUS_GRAB_INTERVAL_MS 控制相邻两次 Raw_PickAt 的起始时刻：
+   每次调用前按上一次的开始时间补足剩余等待，不是在 Raw_PickAt 结束后固定再等
+   一个完整间隔。如果一次 Raw_PickAt 本身耗时超过宏值，下一次只能在其完成后开始。 */
+typedef struct
+{
+    uint32_t last_start_tick;
+    uint8_t  has_last_start;
+} RawPickTiming;
+
+static void Raw_PickAtWithStartInterval(RawBox box, uint8_t slot, RawPickTiming *timing)
+{
+    if(timing->has_last_start != 0U)
+    {
+        uint32_t elapsed_ms = HAL_GetTick() - timing->last_start_tick;
+        if(elapsed_ms < PICK_RAW_PLUS_GRAB_INTERVAL_MS)
+        {
+            HAL_Delay(PICK_RAW_PLUS_GRAB_INTERVAL_MS - elapsed_ms);
+        }
+    }
+
+    timing->last_start_tick = HAL_GetTick();
+    timing->has_last_start = 1U;
+    Raw_PickAt(box, slot);
+}
 
 void Pick_RAW_ABC(void)     /* 初始观测 A B C → 三次都抓 A 框 */
 {
-    Raw_PickAt(RAW_BOX_A, 0);
-    //HAL_Delay(1000);     /* 料块落稳再抓下一块 */
-    Raw_PickAt(RAW_BOX_A, 1);                /* 同框：转盘已把下一块送到 A */
-    //HAL_Delay(1000);
-    Raw_PickAt(RAW_BOX_A, 2);
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithStartInterval(RAW_BOX_A, 0, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_A, 1, &timing);  /* 同框：转盘已把下一块送到 A */
+    Raw_PickAtWithStartInterval(RAW_BOX_A, 2, &timing);
 }
 
 void Pick_RAW_ACB(void)     /* 初始观测 A C B → A → B → C */
 {
-    Raw_PickAt(RAW_BOX_A, 0);
-    Raw_PickAt(RAW_BOX_B, 1);
-    HAL_Delay(1000);
-    Raw_PickAt(RAW_BOX_C, 2);
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithStartInterval(RAW_BOX_A, 0, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_B, 1, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_C, 2, &timing);
 }
 
 void Pick_RAW_BAC(void)     /* 初始观测 B A C → B → C → A */
 {
-    Raw_PickAt(RAW_BOX_B, 0);
-    HAL_Delay(1000);
-    Raw_PickAt(RAW_BOX_C, 1);
-    HAL_Delay(1000);
-    Raw_PickAt(RAW_BOX_A, 2);
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithStartInterval(RAW_BOX_B, 0, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_C, 1, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_A, 2, &timing);
 }
 
 void Pick_RAW_BCA(void)     /* 初始观测 B C A → 三次都抓 B 框 */
 {
-    Raw_PickAt(RAW_BOX_B, 0);
-    HAL_Delay(1300);
-    Raw_PickAt(RAW_BOX_B, 1);
-    HAL_Delay(1300);
-    Raw_PickAt(RAW_BOX_B, 2);
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithStartInterval(RAW_BOX_B, 0, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_B, 1, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_B, 2, &timing);
 }
 
 void Pick_RAW_CAB(void)     /* 初始观测 C A B → 三次都抓 C 框 */
 {
-    Raw_PickAt(RAW_BOX_C, 0);
-    HAL_Delay(1000);
-    Raw_PickAt(RAW_BOX_C, 1);
-    HAL_Delay(1000);
-    Raw_PickAt(RAW_BOX_C, 2);
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithStartInterval(RAW_BOX_C, 0, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_C, 1, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_C, 2, &timing);
 }
 
 void Pick_RAW_CBA(void)     /* 初始观测 C B A → C → A → B */
 {
-    Raw_PickAt(RAW_BOX_C, 0);
-    HAL_Delay(1000);
-    Raw_PickAt(RAW_BOX_A, 1);
-    Raw_PickAt(RAW_BOX_B, 2);
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithStartInterval(RAW_BOX_C, 0, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_A, 1, &timing);
+    Raw_PickAtWithStartInterval(RAW_BOX_B, 2, &timing);
 }
 
 /**
@@ -402,8 +417,8 @@ void Pick_RAW_CBA(void)     /* 初始观测 C B A → C → A → B */
  *        旧值，照着抓会连错三块。
  *        0x02 的视觉对正已搬到 Pick_Correct()，这里不做。
  *
- *        调用关系：目前没有地方调它（task.c 的 `case Pick1` 走的仍是 Pick_RAW）。
- *        想切换时把那里的 Pick_RAW() 换成 Pick_RAW_PLUS() 即可。
+ *        调用关系：task.c 的 `case Pick1` 直接调用本函数；六种路线的起始间隔统一由
+ *        pick_task.h 中的 PICK_RAW_PLUS_GRAB_INTERVAL_MS 宏（单位：毫秒）控制。
  */
 void Pick_RAW_PLUS(void)
 {

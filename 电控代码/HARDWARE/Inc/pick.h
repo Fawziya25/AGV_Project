@@ -60,13 +60,15 @@
 /* 模块初始化（在 AGV_Init 中调用一次） */
 void Pick_Init(void);
 
-/* 转盘选槽：把车上转盘转到第 slot 个槽位，阻塞到停稳。
+/* 非阻塞选槽：把转动命令交给舵机状态机后**立刻返回**，转盘在后台转。
    slot 0=A(30°) / 1=B(150°) / 2=C(270°)，越界按 A 处理。
-   内部走**平滑**(Servo_SetAngleSmooth) + SERVO_T_SETTLE_MS(300ms) 物理停稳裕量,
-   参数全在 servo.h 的 SERVO_T_* 那组里。**转盘带料没停稳臂就下去会撞料**,
-   所以那句 Delay 不能删。
-   调用时序：**先本函数选好槽，再把臂摆到 POS_CAR** —— 转盘转动时臂不在车体上方。 */
+   正常流程**不需要等**：紧跟着的 Pick_JumpTo POS_CAR 是 Π 形抬升，耗时数秒，
+   远长于一个槽 120° 约 1s 的行程；转盘转动的整个过程臂都不在车体上方。
+   Pick_TurnTable_IsBusy() 仍可查询，Pick_TurnTable_Wait() 只在测试/特殊场合
+   需要强制同步时才调，正式流程里没有它。 */
 void Pick_TurnTable_Set(uint8_t slot);
+uint8_t Pick_TurnTable_IsBusy(void);
+void Pick_TurnTable_Wait(void);
 
 /* 基本动作（两版，按"路上有没有障碍"选）。**两轴都走绝对位置模式(raF=1)**：
 

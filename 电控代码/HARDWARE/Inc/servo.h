@@ -1,4 +1,4 @@
-﻿#ifndef __SERVO_H
+#ifndef __SERVO_H
 #define __SERVO_H
 
 #include "main.h"
@@ -51,8 +51,12 @@
    量程 0°~270°，30°/150°/270° = A/B/C 槽，上电初值 0°=A */
 #define SERVO_T_RAMP_STEPS 20     /* 加减速段步数：0 = 匀速分步(无加减速)，见下面说明 */
 #define SERVO_T_RAMP_START 0.3f   /* 起步/收尾首步比例(RAMP_STEPS=0 时不起作用) */
-#define SERVO_T_STEP_DEG   0.8f   /* 每步角度(°) */
-#define SERVO_T_STEP_MS    1.0f      /* 每步间隔(ms)：0.8°/1ms ≈ 800°/s，120° 走 150ms */
+/* 速度 = STEP_DEG / STEP_MS，两者反向调节：想更慢就**加大 STEP_MS** 或**减小 STEP_DEG**。
+   0.5°/4ms ≈ 125°/s（当前值）：转一个槽 120° 约 0.96s，加减速段 20×0.5 = 10°。
+   旧值 0.8°/1ms ≈ 800°/s 已超过舵机本身极限，实际等于"一步到位"，
+   转盘带料时又猛又容易甩飞/丢步，所以先降到约 1/6 速度，再按实车手感微调。 */
+#define SERVO_T_STEP_DEG   1.0f   /* 每步角度(°) */
+#define SERVO_T_STEP_MS    4.0f   /* 每步间隔(ms)：0.5°/4ms ≈ 125°/s，120° 约走 0.96s */
 #define SERVO_T_SETTLE_MS  100    /* 到位后物理裕量(ms)：分步只保证命令发完，
                                      舵机追命令有滞后，没停稳臂就下去会撞料。
                                      §8 定的就是 300，中间被改成过 0，现改回来。 */
@@ -66,8 +70,8 @@
    伸出/收起要慢一点，别把雷达甩出去/夹一下。 */
 #define SERVO_R_RAMP_STEPS 20     /* 加减速段步数 */
 #define SERVO_R_RAMP_START 0.2f   /* 起步/收尾首步比例 */
-#define SERVO_R_STEP_DEG   1.5f   /* 每步角度(°)：0°↔340° 行程 ≈ 227 步(≈454ms) */
-#define SERVO_R_STEP_MS    2      /* 每步间隔(ms)：1.5°/2ms ≈ 750°/s，整程约 720ms */
+#define SERVO_R_STEP_DEG   2.0f   /* 每步角度(°)：0°↔340° 行程 ≈ 227 步(≈454ms) */
+#define SERVO_R_STEP_MS    2      /* 每步间隔(ms)：2.0°/2ms ≈ 750°/s，整程约 720ms */
 #define SERVO_R_SETTLE_MS  500    /* 到位后的物理裕量(ms)：雷达伸/收到位后再扫描或开跑 */
 
 /* 上电时要不要初始化雷达舵机并锁到收起位：
@@ -96,10 +100,17 @@ void Servo_Init(void);
 void Servo_InitId(ServoId id);
 /* 该路舵机是否已初始化（PWM 已起）。1 = 已初始化。 */
 bool Servo_IsReady(ServoId id);
-void Servo_SetAngle(ServoId id, float angle);   /* 角度范围按各舵机配置 */
+void Servo_SetAngle(ServoId id, float angle);   /* 角度范围按各舵机配置，立即下发目标 */
 /* 读取舵机当前命令角(°)：由比较寄存器反推，位置舵机无物理回读 */
 float Servo_GetAngle(ServoId id);
-/* 平滑转动：分步逼近目标角，模拟慢转。stepDeg=每步角度(°)，stepDelayMs=每步间隔(ms) */
+/* 阻塞式平滑转动：分步逼近目标角。stepDeg=每步角度(°)，stepDelayMs=每步间隔(ms) */
 void Servo_SetAngleSmooth(ServoId id, float angle, float stepDeg, uint16_t stepDelayMs);
+/* 非阻塞式平滑转动：由 Servo_Service 周期推进；settleMs 是动作结束后的停稳裕量。 */
+void Servo_SetAngleSmoothAsync(ServoId id, float angle, float stepDeg,
+                               uint16_t stepDelayMs, uint16_t settleMs);
+/* 非阻塞动作及停稳裕量尚未完成时返回 true。 */
+bool Servo_IsBusy(ServoId id);
+/* 每 1ms 调用一次；由 SysTick_Handler 调用，不要在普通流程里手动延时调用。 */
+void Servo_Service(void);
 
 #endif

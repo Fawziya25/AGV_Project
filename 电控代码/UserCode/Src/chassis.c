@@ -88,16 +88,16 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
 	uint32_t p = (uint32_t)(n*3200);
 	dir^=1;
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
-	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_Pos_Control(2, Wheel2PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(2, Wheel2PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_Pos_Control(3, Wheel3PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(3, Wheel3PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_Pos_Control(4, Wheel4PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(4, Wheel4PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
@@ -123,16 +123,16 @@ void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 	uint32_t p = (uint32_t)(n*3200);
 
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
-	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_Pos_Control(4, Wheel2PositiveDir^dir, vel, 20, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(4, Wheel2PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_Pos_Control(2, Wheel3PositiveDir^dir^1, vel, 20, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(2, Wheel3PositiveDir^dir^1, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_Pos_Control(3, Wheel4PositiveDir^dir^1, vel, 20, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(3, Wheel4PositiveDir^dir^1, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
@@ -228,24 +228,24 @@ void AGV_Position_Rotate(uint8_t dir)
 {
 	if(dir == 0)
 	{
-		Emm_V5_Vel_Control(1, 0, 40, 0, 1);
+		Emm_V5_Vel_Control(1, 0, 40, AGV_ACC_VEL, 1);
 		HAL_Delay(10);
-		Emm_V5_Vel_Control(2, 0, 40, 0, 1);
+		Emm_V5_Vel_Control(2, 0, 40, AGV_ACC_VEL, 1);
 		HAL_Delay(10);
-		Emm_V5_Vel_Control(3, 0, 40, 0, 1);
+		Emm_V5_Vel_Control(3, 0, 40, AGV_ACC_VEL, 1);
 		HAL_Delay(10);
-		Emm_V5_Vel_Control(4, 0, 40, 0, 1);
+		Emm_V5_Vel_Control(4, 0, 40, AGV_ACC_VEL, 1);
 		HAL_Delay(10);
 	}
 	else if(dir == 1)
 	{
-		Emm_V5_Vel_Control(1, 1, 40, 0, 1);
+		Emm_V5_Vel_Control(1, 1, 40, AGV_ACC_VEL, 1);
 		delay_us(250);
-		Emm_V5_Vel_Control(2, 1, 40, 0, 1);
+		Emm_V5_Vel_Control(2, 1, 40, AGV_ACC_VEL, 1);
 		delay_us(250);
-		Emm_V5_Vel_Control(3, 1, 40, 0, 1);
+		Emm_V5_Vel_Control(3, 1, 40, AGV_ACC_VEL, 1);
 		delay_us(250);
-		Emm_V5_Vel_Control(4, 1, 40, 0, 1);
+		Emm_V5_Vel_Control(4, 1, 40, AGV_ACC_VEL, 1);
 		delay_us(250);
 	}
 	
@@ -341,7 +341,7 @@ void AGV_Position_Raw_to_Rough()
 	// AGV_Position_Go(Rough, 0);
 	// AGV_TurnRight();
 	AGV_Position_Cruise(2, 2);
-	AGV_Position_Translate(50, Vel, 0);
+	AGV_Position_Translate(20, Vel, 0);
 }
 
 void AGV_Position_Rough_to_Temp()
@@ -351,7 +351,7 @@ void AGV_Position_Rough_to_Temp()
     // AGV_TurnRight();
 	// AGV_Position_Go(Temp, 0);
 	AGV_Position_Cruise(3, 1);
-	AGV_Position_Translate(50, Vel, 0);
+	AGV_Position_Translate(20, Vel, 0);
 }
 
 void AGV_Position_Temp_to_Raw()

@@ -43,7 +43,9 @@
 
 /* 槽位约定：车上是「同一个臂位姿 POS_CAR + 转盘转角」，不是三个臂位姿。
    slot 0/1/2 = A/B/C 槽 = 转盘 30°/150°/270°，由 Pick_TurnTable_Set(slot) 选。
-   三个宏都遵守"先转盘、后摆臂"：转盘转动时臂不在车体上方。 */
+   Set 是**非阻塞**的：发完转动命令立刻返回，转盘在后台转，流程不等它。
+   下面的宏也都不等待；靠随后的 Pick_JumpTo POS_CAR（Π 形抬升，耗时数秒）
+   覆盖 120° 约 1s 的换槽行程。真要强制同步时再单独调 Pick_TurnTable_Wait()。 */
 
 /** 从车上 slot 槽抓取并放置到圆环 */
 #define GRAB_AND_PLACE_TO_RING_SLOT(slot, ring) \
@@ -98,8 +100,12 @@ void Pick_RAW_A(uint8_t slot);
 void Pick_RAW_B(uint8_t slot);
 void Pick_RAW_C(uint8_t slot);
 
-/* 原料区取料（备用路线，当前未调用）：摆 POS_OBSERVE_RAW_CENTER 读一次三框颜色(0x03)，
+/* 六种抓取顺序中，相邻两次 Raw_PickAt 的目标起始间隔（毫秒）。 */
+#define PICK_RAW_PLUS_GRAB_INTERVAL_MS 7200U
+
+/* 原料区取料（备用路线）：摆 POS_OBSERVE_RAW_CENTER 读一次三框颜色(0x03)，
    记下任务码第 0/1/2 色开局各落在哪个框，再按这个排列查表分派给下面六个函数。
+   六种路线均使用 PICK_RAW_PLUS_GRAB_INTERVAL_MS；修改上面的宏即可统一调整。
    切换方法见 pick_task.c 里它的注释。 */
 void Pick_RAW_PLUS(void);
 
@@ -109,8 +115,8 @@ void Pick_RAW_PLUS(void);
    实际抓哪个框由转盘每抓一块挪一格（索引 −1）推出来：
      观测 ABC → 抓 A A A      观测 ACB → 抓 A B C      观测 BAC → 抓 B C A
      观测 BCA → 抓 B B B      观测 CAB → 抓 C C C      观测 CBA → 抓 C A B
-   ABC/BCA/CAB（同框连抓）每块之间停 700ms，等料块落稳、夹爪松到位。
-   一般由 Pick_RAW_PLUS 分派，不用直接调。 */
+   相邻两次 Raw_PickAt 的开始时间按宏值控制；若前次动作耗时已超过该值，
+   下一次会在前次完成后立即开始。一般由 Pick_RAW_PLUS 分派，不用直接调。 */
 void Pick_RAW_ABC(void);
 void Pick_RAW_ACB(void);
 void Pick_RAW_BAC(void);

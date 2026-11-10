@@ -38,6 +38,8 @@ void AGV_Init(void)
     AGV_Position_Init(); // 初始化位置坐标系（初始坐标跟着默认启停区走）
     HWT101_Init(&huart5);// 初始化HWT101
     Radar_Init();           /* 雷达客户端初始化（不发帧）；在 Menu_Init 之前，菜单里要选启停区 */
+    Pick_Axis_Init(); // 步进电机两轴：当前物理位置(上电前放好的0位)=绝对零点，并清堵转/使能
+    Pick_Init();
     Menu_Init();            /* 阻塞等 A8：C6 选启停区（含小车初始坐标），A8 确认启动 */
     Radar_SetDeployed(true);             /* 伸出（0°） */
     /* ⚠ Radar_Init() 末尾会把启停区装回 RADAR_ZONE_DEFAULT，菜单里选的那个会被冲掉：
@@ -52,8 +54,6 @@ void AGV_Init(void)
     AGV_Position_ApplyZone(Radar_GetZone());
     (void)Radar_RunOnce();               /* 握手→选区→设位姿→方格扫描→六段规划→STOP */
     Radar_SetDeployed(false);            /* 扫描/规划完，收入车内（300°） */
-    Pick_Axis_Init(); // 步进电机两轴：当前物理位置(上电前放好的0位)=绝对零点，并清堵转/使能
-    Pick_Init();
     HAL_Delay(500);                      /* 摘要再看 0.5s，然后直接开跑 */
     TaskCode = Depart;  /* 开始 */
 }

@@ -567,8 +567,8 @@ static void Test_GrabRawToCar(uint8_t box, uint8_t slot)
         case 1:  Pick_JumpTo POS_RAW_B; break;
         default: Pick_JumpTo POS_RAW_C; break;
     }
-    Pick_TurnTable_Set(slot);   /* 先选槽：转盘转动时臂还在原料区，不会碰臂 */
-    Pick_Gripper_Grab();
+    Pick_TurnTable_Set(slot);   /* 非阻塞启动选槽，臂还在原料区 */
+    Pick_Gripper_Grab();        /* 与转盘转动并行 */
     Pick_JumpTo POS_CAR;        /* 再摆臂：往车体上方去一律抬起来走 */
     Pick_Gripper_Release();
 }
@@ -637,9 +637,14 @@ static void Test_Pick_POS_Test(void)
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     HWT101_Init(&huart5); /* 初始化HWT101 */
     QRcode_Task();
+    // Place_ROUGH();
+    // Pick_RAW_BCA();
+    // Place_TEMP();
+    Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    //Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
+    Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
     Place_ROUGH();
-    Pick_RAW_BCA();
-    Place_TEMP();
+    Pick_ROUGH();
 }
 
 /* 模式 11：最简单的放置过程 —— 只验"车上取料位 → 三个圆环"这条动作链，
