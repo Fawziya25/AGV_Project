@@ -615,19 +615,19 @@ static void Test_Pick_Task(void)
     // Pick_Gripper_Release();
     // Pick_JumpTo POS_RAW_C;
 
-    Pick_Correct();
+    //Pick_Correct();
     //Pick_RAW();
-    Pick_RAW_PLUS();
+    //Pick_RAW_PLUS();
     // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
     //         // Place_Correct_Low();
     //         // Place_ROUGH();
-    //Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
     //Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
     //Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
     //Place_Correct_Angle(); 
-    //Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
-    //Place_ROUGH();
-    //Pick_ROUGH();
+    Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
+    Place_ROUGH();
+    Pick_ROUGH();
     Pick_JumpTo POS_START;
 }
 
@@ -637,14 +637,37 @@ static void Test_Pick_POS_Test(void)
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     HWT101_Init(&huart5); /* 初始化HWT101 */
     QRcode_Task();
-    // Place_ROUGH();
-    // Pick_RAW_BCA();
-    // Place_TEMP();
-    Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
-    //Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
-    Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
-    Place_ROUGH();
-    Pick_ROUGH();
+    //Key_Scan(&key_zone);
+    //============测试夹爪加紧程度===========//
+    Pick_JumpTo POS_RUN;
+    Pick_Gripper_Release();
+    Pick_Gripper_Grab();
+    Pick_Gripper_Release();
+    //============测试车上的位置===========//
+    Pick_JumpTo POS_CAR;
+    Pick_Gripper_Release();
+    Pick_Gripper_Grab();
+    Pick_JumpTo POS_RUN;
+    Pick_Gripper_Release();
+    //============测试放置区的位置===========//
+    Pick_JumpTo POS_RUN;
+    Pick_Gripper_Release();
+    Pick_Gripper_Grab();
+    Pick_JumpTo POS_2; //POS_1/POS_2/POS_3
+    Pick_JumpTo POS_RUN;
+    Pick_Gripper_Release();
+    //============测试原料区的位置===========//
+    Pick_JumpTo POS_RAW_B;
+    Pick_Gripper_Grab();
+    Pick_JumpTo POS_RUN;
+    Pick_Gripper_Release();
+
+    //Pick_Correct();
+    //Pick_RAW();
+    //Pick_RAW_PLUS();
+    // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
+    //         // Place_Correct_Low();
+    //         // Place_ROUGH();
 }
 
 /* 模式 11：最简单的放置过程 —— 只验"车上取料位 → 三个圆环"这条动作链，
@@ -933,7 +956,7 @@ void Test_Switch(void)
     Radar_Init();
 
     //Test_WaitStartKey();
-    //Pick_Axis_Init();
+    Pick_Axis_Init();
     switch(6)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置

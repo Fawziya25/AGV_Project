@@ -497,7 +497,7 @@ void Place_Correct_Low(void)
    直到 |err| 进死区(ANGLE_DB)或迭代用完。单次修正会残留一部分误差（相机的
    偏角本身有噪声、AGV_SetYaw 也有到位死区），叠到放置时就是斜着下爪。
    `PLACE_CORRECT_ANGLE_SGN` 跟相机侧的约定绑定：实车越修越歪就取反。 */
-#define PLACE_CORRECT_HIGH_MS               500U   /* 高位圆环2 粗修正时间 */
+#define PLACE_CORRECT_HIGH_MS               800U   /* 高位圆环2 粗修正时间 */
 #define PLACE_CORRECT_ANGLE_SHIFT_MM        70U     /* 移位距离：沿车头方向 7cm */
 #define PLACE_CORRECT_ANGLE_SHIFT_DIR       1U      /* GoStraight: 1=向前(当作"左")，0=向后(当作"右") */
 #define PLACE_CORRECT_ANGLE_SGN             (-1.0f) /* 实车越修越歪 → 取反（已按实车改成 -1）*/
