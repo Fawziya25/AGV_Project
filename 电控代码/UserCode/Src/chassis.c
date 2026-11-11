@@ -309,6 +309,8 @@ void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
 	if(RouteID != 5) AGV_Turn(tarDir);
 }
 
+#if Run_With_Radar
+
 /**
  * @brief 出发：先对齐到本启停区的停车位格，再交给雷达规划的第一段
  * @note  首点按启停区取（区1 = Points[4] 左下角、区2 = Points[0] 左上角，见
@@ -379,5 +381,77 @@ void AGV_Position_GoBack()
 	// AGV_TurnRight();
 	// AGV_Position_Go(Destination, 0);
 	AGV_Position_Cruise(5, 3);
+	AGV_Position_Go(ox+50, oy-50, 0);
+}
+
+#else
+
+/**
+ * @brief 出发：先对齐到本启停区的停车位格，再交给雷达规划的第一段
+ * @note  首点按启停区取（区1 = Points[4] 左下角、区2 = Points[0] 左上角，见
+ *        chassis.h 的 AGV_ZONEn_DEPART_GRID）；它必须和 radar_config.h 里该区的
+ *        RADAR_ZONEn_START_GRID 是同一格，否则"先开到出发点"和"规划从哪格出发"会打架。
+ */
+void AGV_Position_Depart()
+{
+	uint8_t g = (AGV_Zone == 1U) ? (uint8_t)AGV_ZONE1_DEPART_GRID
+	                             : (uint8_t)AGV_ZONE2_DEPART_GRID;
+
+	AGV_Position_Go(Points_X[g], Points_Y[g], 0);
+	AGV_Position_Go(Points_X[2], Points_Y[2], 0);
+}
+
+void AGV_Position_Qcode_to_Raw()
+{
+	AGV_Position_Go(Points_X[4], Points_Y[4], 0);
+	AGV_TurnLeft();
+	AGV_Position_Go(Points_X[14], Points_Y[14], 0);
+	AGV_Position_Translate(50, Vel, 0);
+}
+
+void AGV_Position_Raw_to_Rough()
+{
+	AGV_Position_Translate(50, Vel, 1);
+	AGV_TurnRight();
+	AGV_Position_Go(Points_X[10], Points_Y[10], 0);
+	AGV_TurnRight();
+	AGV_Position_Translate(20, Vel, 0);
+}
+
+void AGV_Position_Rough_to_Temp()
+{
+	AGV_Position_Translate(20, Vel, 1);
+	AGV_Position_Go(Points_X[24], Points_Y[24], 0);
+    AGV_TurnRight();
+	AGV_Position_Go(Points_X[22], Points_Y[22], 0);
+	AGV_Position_Translate(20, Vel, 0);
+}
+
+void AGV_Position_Temp_to_Raw()
+{
+	AGV_Position_Translate(20, Vel, 1);
+	AGV_Position_Go(Points_X[20], Points_Y[20], 0);
+    AGV_TurnRight();
+	AGV_Position_Go(Points_X[14], Points_Y[14], 0);
+	AGV_Position_Translate(20, Vel, 0);
+}
+
+/**
+ * @brief 回到原点：走完雷达第 6 段后，再收回到**本启停区**的停车点
+ * @note  末点原来写死 (150, 2250)（区2 的停车位），区1 会被拉回区2 的位置；
+ *        现按 AGV_Zone 取本区停车坐标（chassis.h 的 AGV_ZONEn_ORIGIN_*）。
+ */
+void AGV_Position_GoBack()
+{
+	uint16_t ox = (AGV_Zone == 1U) ? (uint16_t)AGV_ZONE1_ORIGIN_X : (uint16_t)AGV_ZONE2_ORIGIN_X;
+	uint16_t oy = (AGV_Zone == 1U) ? (uint16_t)AGV_ZONE1_ORIGIN_Y : (uint16_t)AGV_ZONE2_ORIGIN_Y;
+
+	AGV_Position_Translate(50, Vel, 1);
+	// AGV_Position_Go(Waypoint_RF, 0);
+	// AGV_TurnRight();
+	// AGV_Position_Go(Destination, 0);
+	AGV_Position_Cruise(5, 3);
 	AGV_Position_Go(ox, oy, 0);
 }
+
+#endif

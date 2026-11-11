@@ -243,10 +243,8 @@ static void yawPID_Calculate(void)
     // 比例项
     P_term = yawPID.kp * yawPID.error;
     // 积分项累加并限幅（抗积分饱和，限的是积分本身）
-    if(yawPID.error <= 30.0f && yawPID.error >= -30.0f)
-    {
-        yawPID.integral += yawPID.error;
-    }
+    yawPID.integral += yawPID.error;
+    
     if(yawPID.integral > YAW_PID_INT_LIM)
     {
         yawPID.integral = YAW_PID_INT_LIM;
@@ -267,14 +265,14 @@ static void yawPID_Calculate(void)
     yawPID.prevError = yawPID.current;
     // 总输出
     yawPID.output = P_term + I_term + D_term;
-    // 输出限幅
-    if(yawPID.output > 200.0f)
+    // 输出限幅（由 YAW_WHEEL_MAX_RPM 反算，见 yawPIDcontroller.h）
+    if(yawPID.output > YAW_PID_OUT_LIM)
     {
-        yawPID.output = 200.0f;
+        yawPID.output = YAW_PID_OUT_LIM;
     }
-    else if(yawPID.output < -200.0f)
+    else if(yawPID.output < -YAW_PID_OUT_LIM)
     {
-        yawPID.output = -200.0f;
+        yawPID.output = -YAW_PID_OUT_LIM;
     }
 }
 
@@ -308,7 +306,7 @@ void AGV_SetYaw(float yaw)
         }
         yawPID_Calculate();
         if(TurnCpltFlag)break;   /* 完成拍已StopNow,不再下发速度,防止停车后车轮继续转动 */
-        omega = yawPID.output*0.94;
+        omega = yawPID.output*YAW_OMEGA_PER_OUT;
         AGV_SetOmega(omega);
     }
     TurnCpltFlag = 0;
@@ -417,7 +415,7 @@ void AGV_SetOmega(float omega)
     /* 正负只决定转向dir，转速统一取绝对值；omega==0时dir=1但vel=0，等价停车指令 */
     uint8_t dir = (omega >= 0.0f) ? 1U : 0U;
     float mag  = (omega < 0.0f) ? -omega : omega;
-    uint16_t vel = (uint16_t)(51.0f * mag / 50.0f);
+    uint16_t vel = (uint16_t)(YAW_RPM_PER_OMEGA * mag);
 
     Emm_V5_Vel_Control(1, dir, vel, 0, 1);
     delay_us(250);

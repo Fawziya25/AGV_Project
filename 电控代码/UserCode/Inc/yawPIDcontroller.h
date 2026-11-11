@@ -10,10 +10,21 @@
 
 #define YAW_PID_INT_LIM 80.0f   /* 角度PID积分限幅(°) */
 
+/* ---------------- 转向最大轮速 ----------------
+   轮速(RPM) = |yawPID.output| × YAW_OMEGA_PER_OUT × YAW_RPM_PER_OMEGA
+             = |output| × 0.94 × 1.02 = |output| × 0.9588
+   所以 PID 输出限幅由目标轮速反算，改轮速只改 YAW_WHEEL_MAX_RPM 一处。
+   ⚠ 这两个系数分别写在 AGV_SetYaw() 的 omega 换算和 AGV_SetOmega() 的
+     omega→RPM 换算里，本头文件把它们抽成宏，改系数时三处不会对不上。 */
+#define YAW_WHEEL_MAX_RPM   300.0f              /* 转向时的最大轮速(RPM) */
+#define YAW_OMEGA_PER_OUT   0.94f               /* PID输出 → 车体角速度(°/s) */
+#define YAW_RPM_PER_OMEGA   (51.0f / 50.0f)     /* 车体角速度(°/s) → 轮速(RPM) */
+#define YAW_PID_OUT_LIM     (YAW_WHEEL_MAX_RPM / (YAW_OMEGA_PER_OUT * YAW_RPM_PER_OMEGA))
+
 /* 航向PID增益:调参直接改这里。AGV_SetYaw() 每次转弯前自己重装，
    不再要求上电时调 YawPID_Init()（那个现在只多清一次 yawOffset） */
 #define YAW_PID_KP  1.2f
-#define YAW_PID_KI  0.035f
+#define YAW_PID_KI  0.06f
 #define YAW_PID_KD  0.045f
 
 #define ZB_RATE_GATE    0.3f    /* 角速度门控(°/s):超过视为真实运动 */
