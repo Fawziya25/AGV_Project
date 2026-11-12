@@ -24,7 +24,7 @@
 /* 航向PID增益:调参直接改这里。AGV_SetYaw() 每次转弯前自己重装，
    不再要求上电时调 YawPID_Init()（那个现在只多清一次 yawOffset） */
 #define YAW_PID_KP  1.2f
-#define YAW_PID_KI  0.06f
+#define YAW_PID_KI  0.035f
 #define YAW_PID_KD  0.045f
 
 #define ZB_RATE_GATE    0.3f    /* 角速度门控(°/s):超过视为真实运动 */

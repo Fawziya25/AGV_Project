@@ -28,8 +28,6 @@ uint8_t Route_id=0;
  */
 void AGV_Init(void)
 {
-    uint8_t zone;
-
     OLED_Init();
     Dbg_Init();           /* 开TIM7调试服务:周期刷相机数据 + A8短按暂停/继续 */
     Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
@@ -41,6 +39,10 @@ void AGV_Init(void)
     Pick_Axis_Init(); // 步进电机两轴：当前物理位置(上电前放好的0位)=绝对零点，并清堵转/使能
     Pick_Init();
     Menu_Init();            /* 阻塞等 A8：C6 选启停区（含小车初始坐标），A8 确认启动 */
+
+
+    #if Run_With_Radar
+    uint8_t zone;
     Radar_SetDeployed(true);             /* 伸出（0°） */
     /* ⚠ Radar_Init() 末尾会把启停区装回 RADAR_ZONE_DEFAULT，菜单里选的那个会被冲掉：
        先记下来，Init 之后再装回去，最后按**最终**区域把小车初始坐标/朝向摆好。
@@ -54,7 +56,9 @@ void AGV_Init(void)
     AGV_Position_ApplyZone(Radar_GetZone());
     (void)Radar_RunOnce();               /* 握手→选区→设位姿→方格扫描→六段规划→STOP */
     Radar_SetDeployed(false);            /* 扫描/规划完，收入车内（300°） */
-    HAL_Delay(500);                      /* 摘要再看 0.5s，然后直接开跑 */
+    #endif
+
+
     TaskCode = Depart;  /* 开始 */
 }
 

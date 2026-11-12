@@ -243,8 +243,10 @@ static void yawPID_Calculate(void)
     // 比例项
     P_term = yawPID.kp * yawPID.error;
     // 积分项累加并限幅（抗积分饱和，限的是积分本身）
-    yawPID.integral += yawPID.error;
-    
+    if(yawPID.error <= 30.0f && yawPID.error >= -30.0f)
+    {
+        yawPID.integral += yawPID.error;
+    }
     if(yawPID.integral > YAW_PID_INT_LIM)
     {
         yawPID.integral = YAW_PID_INT_LIM;

@@ -585,45 +585,28 @@ static void Test_Pick_Raw_PLUS(void)
 
 }
 
-
-
 static void Test_Pick_Task(void)
 {
+    /* 原料区抓取 */
+
     Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
     HWT101_Init(&huart5); /* 初始化HWT101 */
     QRcode_Task(); 
-
-    //
-    // HAL_Delay(500);
-    // Pick_Gripper_Release();
-    //  Pick_Gripper_Grab();
-    // Pick_JumpTo POS_1;
-    // Pick_Gripper_Release();
-    // Pick_JumpTo POS_RUN;
-    // Pick_JumpTo POS_CAR;
-    // Pick_Gripper_Grab();
-    // HAL_Delay(500);
-    // Pick_Gripper_Release();
-    // Pick_JumpTo POS_RAW_B;
-    // Pick_Gripper_Grab();
-    // HAL_Delay(500);
-    // Pick_Gripper_Release();
-    // Pick_JumpTo POS_RAW_A;
-    // Pick_Gripper_Grab();
-    // HAL_Delay(500);
-    // Pick_Gripper_Release();
-    // Pick_JumpTo POS_RAW_C;
-
-    //Pick_Correct();
-    //Pick_RAW();
-    //Pick_RAW_PLUS();
-    // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
-    //         // Place_Correct_Low();
-    //         // Place_ROUGH();
     Pick_Correct();
-    //Pick_RAW();
     Pick_RAW_PLUS(); 
+
+    /* 粗加工区抓取与放置 */
+
+    // Cam_Init();
+    // Pick_Init();
+    // HWT101_Init(&huart5); /* 初始化HWT101 */
+    // QRcode_Task();
+    // Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    // Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
+    // Place_ROUGH();
+    // HAL_Delay(2000);
+    // Pick_ROUGH();
 }
 
 
@@ -959,7 +942,7 @@ void Test_Switch(void)
         case 3:  Test_Turn();        break;  //转向PID：左转90/右转90往复，增益在 yawPIDcontroller.h 的 KP/KI/KD
         case 4:  break;//不用
         case 5:  Test_Pick_POS_Test();  break; // 无视觉的夹爪位置调试
-        case 6:  Test_Pick_Task();break;//
+        case 6:  Test_Pick_Task();    break;//
         case 7:  Test_Camera();      break;  //用到视觉的调试
         case 8:  QRcode_Task();       break;  //调用任意的测试函数
         case 9:  Test_Motor();       break;  //臂测试：高度/半径步进电机(0<->30mm往返)或转盘舵机(A/B/C槽)，靠看+尺子验方向和比例(不返回)
