@@ -13,7 +13,7 @@ uint8_t Starscan_CMD[9] = {0x7E, 0x00, 0x08, 0x01, 0x00, 0x02, 0x01, 0xAB, 0xCD}
 /* 保底结果: 15秒内没扫到码时整串换成它, 保证 Pick/Place_Color 一定有值可用。
    位置分隔符解析时不校验(QRcode_ParseResult 只按下标取值), '+' 和 ',' 效果一样;
    内容按 123 循环, 方便在 OLED 上一眼认出"这次是保底值"。423 */
-static const uint8_t QRC_FALLBACK[16] = "213+213+213+213";
+static const uint8_t QRC_FALLBACK[16] = "214+213+214+213";
 // 二维码扫描结果缓冲区（15字节数据 + 1字节'\0'结束符）
 uint8_t QRcode_Buffer[16];
 // 第一轮抓取物料的颜色顺序

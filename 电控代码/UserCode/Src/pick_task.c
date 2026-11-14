@@ -157,7 +157,7 @@ void Pick_Correct(void)
     Pick_Gripper_Observe();         /* 修正期间张开，别挡住相机 */
     if(Cam_SwitchTo(02)&&cam_flag!=0)  /* 偏差落到全局 dx/dy */
     {
-        AGV_Correct(2000);
+        AGV_Correct(3000);
     }
     Pick_Gripper_Release();         /* 修正完了，下去抓之前收成 release 位 */
 }
