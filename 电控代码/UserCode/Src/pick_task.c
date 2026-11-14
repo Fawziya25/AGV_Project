@@ -330,20 +330,27 @@ typedef struct
     uint8_t  has_last_start;
 } RawPickTiming;
 
-static void Raw_PickAtWithStartInterval(RawBox box, uint8_t slot, RawPickTiming *timing)
+static void Raw_PickAtWithInterval(RawBox box, uint8_t slot, RawPickTiming *timing,
+                                   uint32_t interval_ms)
 {
     if(timing->has_last_start != 0U)
     {
         uint32_t elapsed_ms = HAL_GetTick() - timing->last_start_tick;
-        if(elapsed_ms < PICK_RAW_PLUS_GRAB_INTERVAL_MS)
+        if(elapsed_ms < interval_ms)
         {
-            HAL_Delay(PICK_RAW_PLUS_GRAB_INTERVAL_MS - elapsed_ms);
+            HAL_Delay(interval_ms - elapsed_ms);
         }
     }
 
     timing->last_start_tick = HAL_GetTick();
     timing->has_last_start = 1U;
     Raw_PickAt(box, slot);
+}
+
+/* 普通六种路线用的那一版：间隔固定取 PICK_RAW_PLUS_GRAB_INTERVAL_MS */
+static void Raw_PickAtWithStartInterval(RawBox box, uint8_t slot, RawPickTiming *timing)
+{
+    Raw_PickAtWithInterval(box, slot, timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
 }
 
 void Pick_RAW_ABC(void)     /* 初始观测 A B C → 三次都抓 A 框 */
@@ -392,6 +399,63 @@ void Pick_RAW_CBA(void)     /* 初始观测 C B A → C → A → B */
     Raw_PickAtWithStartInterval(RAW_BOX_C, 0, &timing);
     Raw_PickAtWithStartInterval(RAW_BOX_A, 1, &timing);
     Raw_PickAtWithStartInterval(RAW_BOX_B, 2, &timing);
+}
+
+/* ---- 六种快速路线（Fast） ----
+   与上面六种普通路线一一对应（名字同样是**开局观测到的初始排列**），差别只有两点：
+     1) **第 3 块抓的框不同**（第 1、2 块与普通版完全一样）：
+          观测 ABC → A A B      观测 ACB → A B A      观测 BAC → B C B
+          观测 BCA → B B C      观测 CAB → C C A      观测 CBA → C A C
+     2) **第 2 → 第 3 块之间不等待**：第 2 块动作一结束就立刻抓第 3 块。
+   第 1 → 第 2 块仍按 PICK_RAW_PLUS_GRAB_INTERVAL_MS 的起始间隔走（与普通版同一个宏），
+   口径也一致：从第 1 块的**开始**时刻算起，不足就补足差额。 */
+
+void Pick_RAW_ABC_Fast(void)    /* 初始观测 A B C → A → A → B */
+{
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithInterval(RAW_BOX_A, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAtWithInterval(RAW_BOX_A, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);  /* 与第 1 块隔固定时间 */
+    Raw_PickAt(RAW_BOX_B, 2);                                                       /* 紧接第 2 块，不等 */
+}
+
+void Pick_RAW_ACB_Fast(void)    /* 初始观测 A C B → A → B → A */
+{
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithInterval(RAW_BOX_A, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAtWithInterval(RAW_BOX_B, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAt(RAW_BOX_A, 2);
+}
+
+void Pick_RAW_BAC_Fast(void)    /* 初始观测 B A C → B → C → B */
+{
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithInterval(RAW_BOX_B, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAtWithInterval(RAW_BOX_C, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAt(RAW_BOX_B, 2);
+}
+
+void Pick_RAW_BCA_Fast(void)    /* 初始观测 B C A → B → B → C */
+{
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithInterval(RAW_BOX_B, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAtWithInterval(RAW_BOX_B, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAt(RAW_BOX_C, 2);
+}
+
+void Pick_RAW_CAB_Fast(void)    /* 初始观测 C A B → C → C → A */
+{
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithInterval(RAW_BOX_C, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAtWithInterval(RAW_BOX_C, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAt(RAW_BOX_A, 2);
+}
+
+void Pick_RAW_CBA_Fast(void)    /* 初始观测 C B A → C → A → C */
+{
+    RawPickTiming timing = {0U, 0U};
+    Raw_PickAtWithInterval(RAW_BOX_C, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAtWithInterval(RAW_BOX_A, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+    Raw_PickAt(RAW_BOX_C, 2);
 }
 
 /**
@@ -445,13 +509,23 @@ void Pick_RAW_PLUS(void)
         pos[i] = (uint8_t)(k + 1U);     /* 转成 1=A 2=B 3=C */
     }
 
-    /* 六种初始排列查表，函数名就是这串数（见上面的路线表） */
+    /* 六种初始排列查表，函数名就是这串数（见上面的路线表）。
+       PICK_RAW_PLUS_USE_FAST 是编译期开关：0=普通版，1=Fast 版（第 2→3 块不等）。 */
+#if PICK_RAW_PLUS_USE_FAST
+    if     (pos[0] == 1U && pos[1] == 2U && pos[2] == 3U) Pick_RAW_ABC_Fast();
+    else if(pos[0] == 1U && pos[1] == 3U && pos[2] == 2U) Pick_RAW_ACB_Fast();
+    else if(pos[0] == 2U && pos[1] == 1U && pos[2] == 3U) Pick_RAW_BAC_Fast();
+    else if(pos[0] == 2U && pos[1] == 3U && pos[2] == 1U) Pick_RAW_BCA_Fast();
+    else if(pos[0] == 3U && pos[1] == 1U && pos[2] == 2U) Pick_RAW_CAB_Fast();
+    else if(pos[0] == 3U && pos[1] == 2U && pos[2] == 1U) Pick_RAW_CBA_Fast();
+#else
     if     (pos[0] == 1U && pos[1] == 2U && pos[2] == 3U) Pick_RAW_ABC();
     else if(pos[0] == 1U && pos[1] == 3U && pos[2] == 2U) Pick_RAW_ACB();
     else if(pos[0] == 2U && pos[1] == 1U && pos[2] == 3U) Pick_RAW_BAC();
     else if(pos[0] == 2U && pos[1] == 3U && pos[2] == 1U) Pick_RAW_BCA();
     else if(pos[0] == 3U && pos[1] == 1U && pos[2] == 2U) Pick_RAW_CAB();
     else if(pos[0] == 3U && pos[1] == 2U && pos[2] == 1U) Pick_RAW_CBA();
+#endif
 
     Pick_JumpTo POS_RUN;
 }

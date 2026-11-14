@@ -252,7 +252,8 @@ void HAL_Delay(uint32_t Delay)
  *
  * 四行 16 号字正好铺满 128x64 屏：
  *   y=0   C:xx F:x            相机帧模式 + 是否识别到目标
- *   y=16  x:ddd y:ddd         偏差(px)
+ *   y=16  x:ddd y:ddd         偏差(px，已含相机安装补偿：对准时≈0；显示的是
+ *                              AGV_Correct_ApplyMountCorr 补偿后的值，原始 y 会恒 -45)
  *   y=32  542+312+452+123     任务码：一轮取/放 二轮取/放，各 3 位
  *   y=48  C8:pause / --PAUSE-- C8:GO
  *
@@ -268,7 +269,11 @@ void Dbg_ShowScreen(uint8_t paused)
     sprintf(buf, "C:%02X F:%d", cam_mode, cam_flag);
     OLED_ShowString(0, 0, (uint8_t *)buf, 16, 0);
 
-    sprintf(buf, "x:%d y:%d", dx, dy);
+    /* 显示补偿后的偏差：与 AGV_Correct() 闭环同源(AGV_Correct_ApplyMountCorr)，
+       修正完成时本行 x/y≈0；显示原始值的话对准时 y 恒为 -45，会被误判成没修完 */
+    int16_t cdx = dx, cdy = dy;
+    AGV_Correct_ApplyMountCorr(&cdx, &cdy);
+    sprintf(buf, "x:%d y:%d", cdx, cdy);
     OLED_ShowString(0, 16, (uint8_t *)buf, 16, 0);
 
     /* ---- 任务码：4 组各 3 位，组间 '+'，共 15 字符(120px < 128) ----
@@ -585,12 +590,21 @@ static void Test_Pick_Raw_PLUS(void)
 
 }
 
-
-
 static void Test_Pick_Task(void)
 {
-    Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
-    Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
+    /* 原料区抓取 */
+
+    // Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
+    // Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
+    // HWT101_Init(&huart5); /* 初始化HWT101 */
+    // QRcode_Task(); 
+    // Pick_Correct();
+    // Pick_RAW_PLUS(); 
+
+    /* 粗加工区抓取与放置 */
+
+    Cam_Init();
+    Pick_Init();
     HWT101_Init(&huart5); /* 初始化HWT101 */
     QRcode_Task(); 
 
@@ -629,6 +643,14 @@ static void Test_Pick_Task(void)
     //Place_ROUGH();
     //Pick_ROUGH();
     Pick_JumpTo POS_START;
+
+    QRcode_Task();
+    Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
+    Place_ROUGH();
+    HAL_Delay(2000);
+    Pick_ROUGH();
+
 }
 
 
@@ -964,7 +986,7 @@ void Test_Switch(void)
         case 3:  Test_Turn();        break;  //转向PID：左转90/右转90往复，增益在 yawPIDcontroller.h 的 KP/KI/KD
         case 4:  break;//不用
         case 5:  Test_Pick_POS_Test();  break; // 无视觉的夹爪位置调试
-        case 6:  Test_Pick_Task();break;//
+        case 6:  Test_Pick_Task();    break;//
         case 7:  Test_Camera();      break;  //用到视觉的调试
         case 8:  QRcode_Task();       break;  //调用任意的测试函数
         case 9:  Test_Motor();       break;  //臂测试：高度/半径步进电机(0<->30mm往返)或转盘舵机(A/B/C槽)，靠看+尺子验方向和比例(不返回)
