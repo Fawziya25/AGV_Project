@@ -107,7 +107,7 @@ void Pick_RAW_C(uint8_t slot);
      0 = Pick_RAW_PLUS 走普通六种（每两块之间都按上面的间隔等）
      1 = Pick_RAW_PLUS 走 Fast 六种（第 2→3 块之间不等，第 3 块换框）
    Fast 版第 1→2 块的间隔同样沿用 PICK_RAW_PLUS_GRAB_INTERVAL_MS，没有独立宏。 */
-#define PICK_RAW_PLUS_USE_FAST 1
+#define PICK_RAW_PLUS_USE_FAST 0
 
 /* 原料区取料（备用路线）：摆 POS_OBSERVE_RAW_CENTER 读一次三框颜色(0x03)，
    记下任务码第 0/1/2 色开局各落在哪个框，再按这个排列查表分派给下面六个函数。

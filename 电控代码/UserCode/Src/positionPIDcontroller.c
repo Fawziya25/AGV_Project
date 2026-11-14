@@ -29,8 +29,26 @@
    若每帧都算一轮PID，等效控制率翻倍需重调 KP；故锁 ~20Hz(50ms)下发，
    相机只是"每次用最新一帧"。 */
 #define AGV_CTRL_TICK_MS   40U    /* 控制节拍：距上次下发>=此值才做一轮(≈20Hz) */
-#define AGV_ALIGN_WIN_PX   1      /* |dx|,|dy| 低于该值视为已对准(px) */
+#define AGV_ALIGN_WIN_PX   1      /* |cdx|,|cdy| 低于该值视为已对准(px，补偿后偏差) */
 #define AGV_ALIGN_HOLD_CNT 4      /* 连续 N 个节拍在窗口内才真退出(≈200ms, 防过冲早停) */
+/* ============================================================= */
+/* ============ 相机安装偏差补偿（视觉零点已改回画面中心） ============
+   背景：MaixCAM 视觉代码去掉了紫色 AIM 瞄准点（原 DXDY_OFFSET_Y=-45），
+   dx/dy 的零点改回【相机画面中心】。但相机光轴落点比夹爪真实落点【后移
+   20mm】—— 只把物块对到画面中心，物块实际停在夹爪落点后方 20mm，四处
+   AGV_Correct()（Pick_Correct / Place_Correct_High / Place_Correct_Low /
+   Place_TEMP_Correct）全偏。按实车标定：20mm ↔ 45px（320 参考系，≈0.44mm/px）。
+   补法：消费 dx/dy 的地方（对准判定 + PID）统一加固定偏置，等效把零点挪回
+   夹爪落点。闭环收敛到 0 时，物块位于画面中心上方 45px —— 与原视觉侧
+   紫点行为完全一致。
+   ⚠ 视觉/电控只能有一边开这个补偿：两边都开 = 净偏 90px（40mm）。
+   符号：加在【相机发来的原始 dx/dy】上（与 AGV_ALIGN_WIN_PX 同坐标系，
+   在 POS_PX_SCALE 缩放之前）。Y=+45 → 零点上移（画面上方）；实车越修越远
+   就取反。X 默认 0（旧视觉带过 -1.2px 横向小偏置，要完全复刻就填 1.2）。
+   换相机高度/分辨率/安装位置后按 mm↔px 重新标定。 */
+#define CAM_MOUNT_CORR_ENABLE  1       /* 总开关：0=回到"纯画面中心"零点 */
+#define CAM_MOUNT_CORR_X        0.0f    /* 横向偏置(px)，一般不动 */
+#define CAM_MOUNT_CORR_Y        25.0f   /* 纵向偏置(px)：相机中心后移20mm↔45px */
 /* ============================================================= */
 
 PosPID_TypeDef posPID_X;
@@ -144,14 +162,43 @@ void AGV_Position_Stop(void)
     Emm_V5_WaitRxFrame(EMM_V5_ACK_TMO_MS);   /* 等命令回帧(原为死等，加超时防卡死) */
 }
 
+#if CAM_MOUNT_CORR_ENABLE
+/* 补偿量允许填小数（如复刻旧 AIM 的 1.2），进 int16 前四舍五入 */
+static int16_t CamMountCorr_Round(float v)
+{
+    return (int16_t)((v >= 0.0f) ? (v + 0.5f) : (v - 0.5f));
+}
+#endif
+
+/**
+ * @brief 相机安装偏差补偿：把相机原始 dx/dy（相对画面中心）换成相对夹爪落点的偏差
+ * @param pdx / pdy  进出同参：输入原始偏差，输出补偿后偏差（px，原地替换）
+ * @note  对准判定与 PID 都必须用补偿后的值 —— 两处共用本函数保证零点一致；
+ *        调试屏（test.c）显示也调它，屏上 x/y≈0 才等于闭环真对准（若显示原始值，
+ *        对准时 y 恒为 -45，一眼看上去像没修完）。补偿量见顶部 CAM_MOUNT_CORR_*。
+ */
+void AGV_Correct_ApplyMountCorr(int16_t *pdx, int16_t *pdy)
+{
+#if CAM_MOUNT_CORR_ENABLE
+    *pdx = CamMountCorr_Round((float)*pdx + CAM_MOUNT_CORR_X);
+    *pdy = CamMountCorr_Round((float)*pdy + CAM_MOUNT_CORR_Y);
+#else
+    (void)pdx;                     /* 关补偿=原样返回，闭环/屏显回到画面中心零点 */
+    (void)pdy;
+#endif
+}
+
 /**
  * @brief 视觉闭环修正主流程：持续修正直到"真对准"或超时（阻塞），退出前自动停车
  * @param timeout_ms 本段修正允许的总时长(ms)，超时强制退出并停车
  * @note  原 Pick_Correct 整体搬移至此（pick_task 只负责调度）。
  *        - 控制节拍锁 ~20Hz(AGV_CTRL_TICK_MS)：只按节拍消费一帧，控制率不随
  *          相机帧率(实测~40fps)漂移，与 KP 标定的 10~20Hz 环境一致 → 无需重调 KP。
- *        - 对准判据：连续 AGV_ALIGN_HOLD_CNT 个节拍都在 |dx|,|dy|<=AGV_ALIGN_WIN_PX
+ *        - 对准判据：连续 AGV_ALIGN_HOLD_CNT 个节拍都在 |cdx|,|cdy|<=AGV_ALIGN_WIN_PX
  *          内才退出；单帧出窗/目标丢失即清零 → 防"过冲经过0点"或抖动造成的假对准。
+ *        - 相机安装偏差补偿：每拍消费帧后先经 AGV_Correct_ApplyMountCorr() 把原始
+ *          dx/dy（相对画面中心）换成相对夹爪落点的 cdx/cdy，对准判定与 PID 同用它
+ *          —— 相机中心比夹爪落点后移 20mm（↔45px），见顶部 CAM_MOUNT_CORR_*。
  *        - 未识别到目标(cam_flag==0)时不下发(保持当前轮速)、等目标回来；全程无帧则空转到超时。
  *        - OLED 刷新(~20ms软I2C整屏)已移出本循环，避免拖乱 50ms 控制节拍。
  *        全局变量 dx/dy 等在 camera.h 声明。
@@ -181,6 +228,12 @@ void AGV_Correct(uint32_t timeout_ms)
         cam_receive_flag = 0;
         last_ctrl = HAL_GetTick();
 
+        /* 相机安装偏差补偿（顶部 CAM_MOUNT_CORR_*）：本拍闭环用的偏差以补偿后的
+           cdx/cdy 为准 —— 对准判定与 PID 必须同源，否则窗口和 PID 的零点差 45px，
+           会一进窗就带着 45px 残差"假对准"退出。 */
+        int16_t cdx = dx, cdy = dy;
+        AGV_Correct_ApplyMountCorr(&cdx, &cdy);
+
         /* 无目标：不下发(保持上次轮速)、清零对准计数，等目标回来 */
         // if(cam_flag == 0U)
         // {
@@ -189,8 +242,8 @@ void AGV_Correct(uint32_t timeout_ms)
         // }
 
         /* 对准判定：在窗口内→计数；出窗/抖动→清零(防过冲经过0点时误停) */
-        if(dx <=  AGV_ALIGN_WIN_PX && dx >= -AGV_ALIGN_WIN_PX &&
-           dy <=  AGV_ALIGN_WIN_PX && dy >= -AGV_ALIGN_WIN_PX)
+        if(cdx <=  AGV_ALIGN_WIN_PX && cdx >= -AGV_ALIGN_WIN_PX &&
+           cdy <=  AGV_ALIGN_WIN_PX && cdy >= -AGV_ALIGN_WIN_PX)
         {
             if(++align_cnt >= AGV_ALIGN_HOLD_CNT) break;   /* 连续N节拍对准=完成 */
         }
@@ -199,7 +252,7 @@ void AGV_Correct(uint32_t timeout_ms)
             align_cnt = 0;
         }
 
-        AGV_Position_Correct(dx, dy);  /* 一轮PID：轴映射+麦轮逆解+下发 */
+        AGV_Position_Correct(cdx, cdy);  /* 一轮PID：轴映射+麦轮逆解+下发（已补偿偏差） */
     }
     AGV_Position_Stop();    /* 退出(真对准或超时)立即停车 */
     AGV_SetYaw(temp_yaw);  /* 修正后回到修正前的航向 */
