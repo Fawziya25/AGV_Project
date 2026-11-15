@@ -631,11 +631,12 @@ static void Test_Pick_Task(void)
     // HAL_Delay(500);
     // Pick_Gripper_Release();
     // Pick_JumpTo POS_RAW_C;
-     Pick_Correct();
+    Pick_Correct();
    //Pick_JumpTo POS_RAW_C;
    
     //Pick_RAW();
-    Pick_RAW_PLUS();
+    //Pick_RAW_PLUS();
+    Pick_RAW_PLUS_FAST();
     // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
     //         // Place_Correct_Low();
     //         // Place_ROUGH();

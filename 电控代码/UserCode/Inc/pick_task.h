@@ -103,17 +103,20 @@ void Pick_RAW_C(uint8_t slot);
 /* 六种抓取顺序中，相邻两次 Raw_PickAt 的目标起始间隔（毫秒）。 */
 #define PICK_RAW_PLUS_GRAB_INTERVAL_MS 7200U
 
-/* Fast 分派开关（编译期）：
-     0 = Pick_RAW_PLUS 走普通六种（每两块之间都按上面的间隔等）
-     1 = Pick_RAW_PLUS 走 Fast 六种（第 2→3 块之间不等，第 3 块换框）
-   Fast 版第 1→2 块的间隔同样沿用 PICK_RAW_PLUS_GRAB_INTERVAL_MS，没有独立宏。 */
-#define PICK_RAW_PLUS_USE_FAST 0
+/* Fast 路线第 2 块前的等待(ms)：它紧接第 1 块、没有间隔可等，但从 POS_CAR 到
+   原料框是大幅 Z 轴旋转，臂会晃 —— 先摆到目标上方 30mm 的等待位停这么久，
+   等晃动衰减后再下探抓取（见 pick_task.c 的 Raw_PickAtWithSettle）。 */
+#define PICK_RAW_APPROACH_SETTLE_MS 500U
 
-/* 原料区取料（备用路线）：摆 POS_OBSERVE_RAW_CENTER 读一次三框颜色(0x03)，
-   记下任务码第 0/1/2 色开局各落在哪个框，再按这个排列查表分派给下面六个函数。
-   六种路线均使用 PICK_RAW_PLUS_GRAB_INTERVAL_MS；修改上面的宏即可统一调整。
-   切换方法见 pick_task.c 里它的注释。 */
+/* 原料区取料（普通路线）：摆 POS_OBSERVE_RAW_CENTER 读一次三框颜色(0x03)，
+   记下任务码第 0/1/2 色开局各落在哪个框，再按这个排列查表分派给下面六个普通函数。
+   六种路线均使用 PICK_RAW_PLUS_GRAB_INTERVAL_MS；修改上面的宏即可统一调整。 */
 void Pick_RAW_PLUS(void);
+
+/* 原料区取料（快速路线）：观测流程与 Pick_RAW_PLUS 完全相同（共用同一份 0x03
+   观测），分派给下面六个 Fast 函数。原来的 PICK_RAW_PLUS_USE_FAST 编译开关已删，
+   要切路线就在上层把 Pick_RAW_PLUS() 换成 Pick_RAW_PLUS_FAST()。 */
+void Pick_RAW_PLUS_FAST(void);
 
 /* 六种固定抓取路线。⚠ **名称 = 开局观测到的初始排列**（任务码第 0/1/2 色分别
    落在 A/B/C 哪一格），不是三次抓取实际去的框；三个槽固定按 0→1→2 依次放。
@@ -121,8 +124,10 @@ void Pick_RAW_PLUS(void);
    实际抓哪个框由转盘每抓一块挪一格（索引 −1）推出来：
      观测 ABC → 抓 A A A      观测 ACB → 抓 A B C      观测 BAC → 抓 B C A
      观测 BCA → 抓 B B B      观测 CAB → 抓 C C C      观测 CBA → 抓 C A B
-   相邻两次 Raw_PickAt 的开始时间按宏值控制；若前次动作耗时已超过该值，
-   下一次会在前次完成后立即开始。一般由 Pick_RAW_PLUS 分派，不用直接调。 */
+   相邻两次 Raw_PickAt 的开始时间按宏值控制；**等待期间臂会先摆到下一块上方
+   30mm 的等待位（pick.h 的 POS_RAW_x_APPROACH）再补足剩余时间**，到点后从
+   等待位垂直下降到抓取位。若前次动作耗时已超过该值，则不摆等待位，下一次
+   在前次完成后立即开始。一般由 Pick_RAW_PLUS 分派，不用直接调。 */
 void Pick_RAW_ABC(void);
 void Pick_RAW_ACB(void);
 void Pick_RAW_BAC(void);
@@ -131,20 +136,23 @@ void Pick_RAW_CAB(void);
 void Pick_RAW_CBA(void);
 
 /* 六种快速抓取路线（Fast 版）。**名称同样 = 开局观测到的初始排列**，与上面六个
-   一一对应；差别只有两点：
-     1) 第 3 块去哪个框不同（第 1、2 块与普通版相同）：
-          观测 ABC → 抓 A A B      观测 ACB → 抓 A B A      观测 BAC → 抓 B C B
-          观测 BCA → 抓 B B C      观测 CAB → 抓 C C A      观测 CBA → 抓 C A C
-     2) **第 2 块与第 3 块之间不等待**，第 2 块动作一结束立刻抓第 3 块。
-   第 1 块与第 2 块之间仍按 PICK_RAW_PLUS_GRAB_INTERVAL_MS 固定间隔走，口径与普通版
-   一致（从第 1 块**开始**时刻算起，不足就补足差额）。
-   由 Pick_RAW_PLUS 按 PICK_RAW_PLUS_USE_FAST 开关分派。 */
-void Pick_RAW_ABC_Fast(void);
-void Pick_RAW_ACB_Fast(void);
-void Pick_RAW_BAC_Fast(void);
-void Pick_RAW_BCA_Fast(void);
-void Pick_RAW_CAB_Fast(void);
-void Pick_RAW_CBA_Fast(void);
+   一一对应。转盘规律同普通路线（索引 −1：A→C、C→B、B→A）。
+   **连抓的是第 1→2 块**：第 2 块紧接第 1 块、不等间隔，抓该颜色初始所在框（此时
+   转盘还没转），只在目标上方 30mm 停 PICK_RAW_APPROACH_SETTLE_MS(500ms) 等晃动
+   衰减；**第 3 块等满一个 PICK_RAW_PLUS_GRAB_INTERVAL_MS**，间隔从
+   **相机 0x03 报完三框颜色的时刻**起算（不是从第 2 块开始算），转盘转一格后抓
+   该颜色初始框 −1（A→C、C→B、B→A）；等待期间同样先摆到上方 30mm，并保证
+   到位后至少停 PICK_RAW_APPROACH_SETTLE_MS(500ms)（剩余间隔不足时兜底）：
+     观测 ABC → 抓 A B B      观测 ACB → 抓 A C A      观测 BAC → 抓 B A B
+     观测 BCA → 抓 B C C      观测 CAB → 抓 C A A      观测 CBA → 抓 C B C
+   origin_tick = Raw_ObserveThreeBoxes() 返回的"颜色读到的时刻"。
+   由 Pick_RAW_PLUS_FAST 分派。 */
+void Pick_RAW_ABC_Fast(uint32_t origin_tick);
+void Pick_RAW_ACB_Fast(uint32_t origin_tick);
+void Pick_RAW_BAC_Fast(uint32_t origin_tick);
+void Pick_RAW_BCA_Fast(uint32_t origin_tick);
+void Pick_RAW_CAB_Fast(uint32_t origin_tick);
+void Pick_RAW_CBA_Fast(uint32_t origin_tick);
 
 /* 粗加工区放置前的视觉对正，拆成三步，固定顺序 High → Angle → Low → Place_ROUGH()：
 

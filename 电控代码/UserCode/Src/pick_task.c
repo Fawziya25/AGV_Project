@@ -203,72 +203,6 @@ void Pick_RAW(void)
     Pick_JumpTo POS_RUN;
 }
 
-/* ===================== 原料区三个抓取位 =====================
- * A/B/C 三框的取料动作拆成三个函数：现在差别只在"要不要挪底盘、臂摆哪个位姿"，
- * 以后三处要加不同动作时各改各的，不会互相牵连。
- * 三个函数都完成完整的"抓一块 → 放到车上第 slot 槽"，调用方不用再补动作。
- */
-
-/**
- * @brief 从原料区 A 位抓一块，放到车上第 slot 槽
- * @param slot 车上槽下标 0=A, 1=B, 2=C
- * @note  先挪底盘再动臂：A 位在侧前方，底盘要**先纵向、再横向**挪到位才够得着；
- *        抓完放上车的动作和 B 位一样；最后按**相反顺序**（先横向、后纵向）退回来，
- *        下一块和后续导航的基准才不变（来回都是开环位移，等距反向，净值 0）。
- */
-void Pick_RAW_A(uint8_t slot)
-{
-    AGV_Position_GoStraight(PICK_RAW_STRAIGHT_MM, Vel, PICK_RAW_STRAIGHT_A_DIR);  /* 先纵向 7cm */
-    AGV_Position_Translate(PICK_RAW_SIDE_MM, Vel, PICK_RAW_SIDE_A_DIR);           /* 再横向 3cm */
-
-    Pick_JumpTo POS_RAW_A;
-    Pick_TurnTable_Set(slot);       /* 臂还在原料区时启动转盘选槽 */
-    Pick_Gripper_Grab();            /* 与转盘转动并行 */
-    Pick_JumpTo POS_CAR;
-    Pick_Gripper_Release();
-
-    /* 归位：先横向、后纵向，和去程反过来，避免斜着退 */
-    AGV_Position_Translate(PICK_RAW_SIDE_MM, Vel, (uint8_t)(PICK_RAW_SIDE_A_DIR ^ 1U));
-    AGV_Position_GoStraight(PICK_RAW_STRAIGHT_MM, Vel, (uint8_t)(PICK_RAW_STRAIGHT_A_DIR ^ 1U));
-}
-
-/**
- * @brief 从原料区 B 位抓一块，放到车上第 slot 槽
- * @param slot 车上槽下标 0=A, 1=B, 2=C
- * @note  B 位就在车头正前方，底盘不用动 —— 三个位置里最短的一条。
- */
-void Pick_RAW_B(uint8_t slot)
-{
-    Pick_JumpTo POS_RAW_B;
-    Pick_TurnTable_Set(slot);       /* 启动选槽，非阻塞 */
-    Pick_Gripper_Grab();            /* 与转盘转动并行 */
-    Pick_JumpTo POS_CAR;
-    Pick_Gripper_Release();
-}
-
-/**
- * @brief 从原料区 C 位抓一块，放到车上第 slot 槽
- * @param slot 车上槽下标 0=A, 1=B, 2=C
- * @note  和 A 对称：底盘纵向、横向都走另一侧，抓 POS_RAW_C，放完按相反顺序退回来。
- *        现在和 Pick_RAW_A 只差方向/位姿；以后要是两侧不对称（场地偏了、
- *        料架位置不一样），改这个函数就行，别去动 A。
- */
-void Pick_RAW_C(uint8_t slot)
-{
-    AGV_Position_GoStraight(PICK_RAW_STRAIGHT_MM, Vel, PICK_RAW_STRAIGHT_C_DIR);  /* 先纵向 7cm */
-    AGV_Position_Translate(PICK_RAW_SIDE_MM, Vel, PICK_RAW_SIDE_C_DIR);           /* 再横向 3cm */
-
-    Pick_JumpTo POS_RAW_C;
-    Pick_TurnTable_Set(slot);       /* 启动选槽，非阻塞 */
-    Pick_Gripper_Grab();            /* 与转盘转动并行 */
-    Pick_JumpTo POS_CAR;
-    Pick_Gripper_Release();
-
-    /* 归位：先横向、后纵向 */
-    AGV_Position_Translate(PICK_RAW_SIDE_MM, Vel, (uint8_t)(PICK_RAW_SIDE_C_DIR ^ 1U));
-    AGV_Position_GoStraight(PICK_RAW_STRAIGHT_MM, Vel, (uint8_t)(PICK_RAW_STRAIGHT_C_DIR ^ 1U));
-}
-
 /* ===================== 原料区六种固定抓取路线 =====================
  * 前置：相机 0x03 已经报出 A/B/C 三框的**初始**颜色。每抓走一块，转盘内容按
  * 索引 −1 挪一格（A→C、C→B、B→A，2026-10-23 实车确认），所以「任务码第 i 个
@@ -323,12 +257,29 @@ static void Raw_PickAt(RawBox box, uint8_t slot)
 
    使用宏 PICK_RAW_PLUS_GRAB_INTERVAL_MS 控制相邻两次 Raw_PickAt 的起始时刻：
    每次调用前按上一次的开始时间补足剩余等待，不是在 Raw_PickAt 结束后固定再等
-   一个完整间隔。如果一次 Raw_PickAt 本身耗时超过宏值，下一次只能在其完成后开始。 */
+   一个完整间隔。**这段等待不再空耗**：先摆到下一块上方 30mm 的等待位
+   （POS_RAW_x_APPROACH），摆位本身也算在这段间隔里，摆完再补足剩余时间。
+   等待位和抓取位只差高度，所以后面的 Raw_PickAt 里 Pick_JumpTo 会短路成
+   "只降高度"，不会再抬到安全高度绕一圈。
+   如果一次 Raw_PickAt 本身耗时超过宏值，就不摆等待位、直接开始下一块。 */
 typedef struct
 {
     uint32_t last_start_tick;
     uint8_t  has_last_start;
 } RawPickTiming;
+
+/* 摆到指定框的"上方等待位"：角度/半径与抓取位相同，高度高 30mm。
+   用 Pick_JumpTo（Π 形）而不是 Pick_MoveTo：这一趟是从 POS_CAR 往原料区走，
+   横向扫过车体，而车上已经放了前面几块料，必须抬起来过。 */
+static void Raw_MoveToApproach(RawBox box)
+{
+    switch(box)
+    {
+        case RAW_BOX_A: Pick_JumpTo POS_RAW_A_APPROACH; break;
+        case RAW_BOX_C: Pick_JumpTo POS_RAW_C_APPROACH; break;
+        default:        Pick_JumpTo POS_RAW_B_APPROACH; break;
+    }
+}
 
 static void Raw_PickAtWithInterval(RawBox box, uint8_t slot, RawPickTiming *timing,
                                    uint32_t interval_ms)
@@ -336,9 +287,17 @@ static void Raw_PickAtWithInterval(RawBox box, uint8_t slot, RawPickTiming *timi
     if(timing->has_last_start != 0U)
     {
         uint32_t elapsed_ms = HAL_GetTick() - timing->last_start_tick;
+
         if(elapsed_ms < interval_ms)
         {
-            HAL_Delay(interval_ms - elapsed_ms);
+            /* 间隔里先把臂摆到下一块上方等好，摆完再补足剩余时间 */
+            Raw_MoveToApproach(box);
+
+            elapsed_ms = HAL_GetTick() - timing->last_start_tick;
+            if(elapsed_ms < interval_ms)
+            {
+                HAL_Delay(interval_ms - elapsed_ms);
+            }
         }
     }
 
@@ -351,6 +310,48 @@ static void Raw_PickAtWithInterval(RawBox box, uint8_t slot, RawPickTiming *timi
 static void Raw_PickAtWithStartInterval(RawBox box, uint8_t slot, RawPickTiming *timing)
 {
     Raw_PickAtWithInterval(box, slot, timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
+}
+
+/* Fast 路线第 2 块：紧接第 1 块（不等 7200ms 间隔），但这一趟是从 POS_CAR 做
+   大幅 Z 轴旋转过来的，臂会晃。先摆到目标上方 30mm 的等待位停
+   PICK_RAW_APPROACH_SETTLE_MS，等晃动衰减，再垂直下探抓取。 */
+static void Raw_PickAtWithSettle(RawBox box, uint8_t slot)
+{
+    Raw_MoveToApproach(box);
+    HAL_Delay(PICK_RAW_APPROACH_SETTLE_MS);
+    Raw_PickAt(box, slot);
+}
+
+/* Fast 路线第 3 块：间隔从 **origin_tick** 起算（= 相机 0x03 报完三框颜色的时刻，
+   不是第 2 块的开始时刻），满 interval_ms 再抓。
+   不管剩余间隔还有多少，都先摆到目标上方 30mm 的等待位（这一趟是从 POS_CAR
+   出发的大幅 Z 轴旋转，臂会晃），并保证到位后至少停
+   PICK_RAW_APPROACH_SETTLE_MS —— 间隔本身通常已经超过 500ms，这一条只在
+   前两块把间隔用掉大半时兜底。 */
+static void Raw_PickAtFromOrigin(RawBox box, uint8_t slot, uint32_t origin_tick,
+                                 uint32_t interval_ms)
+{
+    uint32_t arrived_ms;
+    uint32_t elapsed_ms;
+
+    Raw_MoveToApproach(box);
+    arrived_ms = HAL_GetTick();          /* 摆到等待位的时刻，停稳从这儿算 */
+
+    /* 1) 等间隔：从相机报完三框颜色的时刻起满 interval_ms（转盘转一格） */
+    elapsed_ms = HAL_GetTick() - origin_tick;
+    if(elapsed_ms < interval_ms)
+    {
+        HAL_Delay(interval_ms - elapsed_ms);
+    }
+
+    /* 2) 再保证在等待位上停够 PICK_RAW_APPROACH_SETTLE_MS（等晃动衰减） */
+    elapsed_ms = HAL_GetTick() - arrived_ms;
+    if(elapsed_ms < PICK_RAW_APPROACH_SETTLE_MS)
+    {
+        HAL_Delay(PICK_RAW_APPROACH_SETTLE_MS - elapsed_ms);
+    }
+
+    Raw_PickAt(box, slot);
 }
 
 void Pick_RAW_ABC(void)     /* 初始观测 A B C → 三次都抓 A 框 */
@@ -402,99 +403,90 @@ void Pick_RAW_CBA(void)     /* 初始观测 C B A → C → A → B */
 }
 
 /* ---- 六种快速路线（Fast） ----
-   与上面六种普通路线一一对应（名字同样是**开局观测到的初始排列**），差别只有两点：
-     1) **第 3 块抓的框不同**（第 1、2 块与普通版完全一样）：
-          观测 ABC → A A B      观测 ACB → A B A      观测 BAC → B C B
-          观测 BCA → B B C      观测 CAB → C C A      观测 CBA → C A C
-     2) **第 2 → 第 3 块之间不等待**：第 2 块动作一结束就立刻抓第 3 块。
-   第 1 → 第 2 块仍按 PICK_RAW_PLUS_GRAB_INTERVAL_MS 的起始间隔走（与普通版同一个宏），
-   口径也一致：从第 1 块的**开始**时刻算起，不足就补足差额。 */
+   与上面六种普通路线一一对应（名字同样是**开局观测到的初始排列**）。
+   转盘规律同普通路线：内容按索引 −1 挪一格（A→C、C→B、B→A）。
+   **连抓的是第 1→2 块，不是第 2→3 块**：
+     第 1 块：抓 c1 初始所在框；
+     第 2 块：**紧接第 1 块**（不等间隔，此时转盘还没转），抓 c2 **初始**所在框；
+             只在目标上方 30mm 停 PICK_RAW_APPROACH_SETTLE_MS(500ms) 等大幅
+             Z 轴旋转的晃动衰减（Raw_PickAtWithSettle）；
+     第 3 块：间隔从 **相机 0x03 报完三框颜色的时刻**起算（不是从第 2 块开始算），
+             满一个 PICK_RAW_PLUS_GRAB_INTERVAL_MS 再抓；这期间转盘转一格，
+             第三块从初始框按索引 −1 挪一格（A→C、C→B、B→A），抓 c3 初始框 −1。
+             等待期间同样先摆到上方 30mm，**并且保证到位后至少停
+             PICK_RAW_APPROACH_SETTLE_MS(500ms)**（剩余间隔不足时兜底）：
+       观测 ABC → A B B      观测 ACB → A C A      观测 BAC → B A B
+       观测 BCA → B C C      观测 CAB → C A A      观测 CBA → C B C
+   第 3 块的等待期间臂会先摆到目标上方 30mm 的等待位（Raw_PickAtFromOrigin）。 */
 
-void Pick_RAW_ABC_Fast(void)    /* 初始观测 A B C → A → A → B */
+void Pick_RAW_ABC_Fast(uint32_t origin_tick)    /* 初始观测 A B C → A → B → B */
 {
-    RawPickTiming timing = {0U, 0U};
-    Raw_PickAtWithInterval(RAW_BOX_A, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAtWithInterval(RAW_BOX_A, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);  /* 与第 1 块隔固定时间 */
-    Raw_PickAt(RAW_BOX_B, 2);                                                       /* 紧接第 2 块，不等 */
+    Raw_PickAt(RAW_BOX_A, 0);                                         /* 第 1 块：c1 初始框 */
+    Raw_PickAtWithSettle(RAW_BOX_B, 1);                               /* 第 2 块：紧接，c2 初始框 */
+    Raw_PickAtFromOrigin(RAW_BOX_B, 2, origin_tick, PICK_RAW_PLUS_GRAB_INTERVAL_MS);  /* 第 3 块：C 转一格 → B */
 }
 
-void Pick_RAW_ACB_Fast(void)    /* 初始观测 A C B → A → B → A */
+void Pick_RAW_ACB_Fast(uint32_t origin_tick)    /* 初始观测 A C B → A → C → A */
 {
-    RawPickTiming timing = {0U, 0U};
-    Raw_PickAtWithInterval(RAW_BOX_A, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAtWithInterval(RAW_BOX_B, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAt(RAW_BOX_A, 2);
+    Raw_PickAt(RAW_BOX_A, 0);
+    Raw_PickAtWithSettle(RAW_BOX_C, 1);
+    Raw_PickAtFromOrigin(RAW_BOX_A, 2, origin_tick, PICK_RAW_PLUS_GRAB_INTERVAL_MS);  /* B 转一格 → A */
 }
 
-void Pick_RAW_BAC_Fast(void)    /* 初始观测 B A C → B → C → B */
+void Pick_RAW_BAC_Fast(uint32_t origin_tick)    /* 初始观测 B A C → B → A → B */
 {
-    RawPickTiming timing = {0U, 0U};
-    Raw_PickAtWithInterval(RAW_BOX_B, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAtWithInterval(RAW_BOX_C, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAt(RAW_BOX_B, 2);
+    Raw_PickAt(RAW_BOX_B, 0);
+    Raw_PickAtWithSettle(RAW_BOX_A, 1);
+    Raw_PickAtFromOrigin(RAW_BOX_B, 2, origin_tick, PICK_RAW_PLUS_GRAB_INTERVAL_MS);  /* C 转一格 → B */
 }
 
-void Pick_RAW_BCA_Fast(void)    /* 初始观测 B C A → B → B → C */
+void Pick_RAW_BCA_Fast(uint32_t origin_tick)    /* 初始观测 B C A → B → C → C */
 {
-    RawPickTiming timing = {0U, 0U};
-    Raw_PickAtWithInterval(RAW_BOX_B, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAtWithInterval(RAW_BOX_B, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAt(RAW_BOX_C, 2);
+    Raw_PickAt(RAW_BOX_B, 0);
+    Raw_PickAtWithSettle(RAW_BOX_C, 1);
+    Raw_PickAtFromOrigin(RAW_BOX_C, 2, origin_tick, PICK_RAW_PLUS_GRAB_INTERVAL_MS);  /* A 转一格 → C */
 }
 
-void Pick_RAW_CAB_Fast(void)    /* 初始观测 C A B → C → C → A */
+void Pick_RAW_CAB_Fast(uint32_t origin_tick)    /* 初始观测 C A B → C → A → A */
 {
-    RawPickTiming timing = {0U, 0U};
-    Raw_PickAtWithInterval(RAW_BOX_C, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAtWithInterval(RAW_BOX_C, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAt(RAW_BOX_A, 2);
+    Raw_PickAt(RAW_BOX_C, 0);
+    Raw_PickAtWithSettle(RAW_BOX_A, 1);
+    Raw_PickAtFromOrigin(RAW_BOX_A, 2, origin_tick, PICK_RAW_PLUS_GRAB_INTERVAL_MS);  /* B 转一格 → A */
 }
 
-void Pick_RAW_CBA_Fast(void)    /* 初始观测 C B A → C → A → C */
+void Pick_RAW_CBA_Fast(uint32_t origin_tick)    /* 初始观测 C B A → C → B → C */
 {
-    RawPickTiming timing = {0U, 0U};
-    Raw_PickAtWithInterval(RAW_BOX_C, 0, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAtWithInterval(RAW_BOX_A, 1, &timing, PICK_RAW_PLUS_GRAB_INTERVAL_MS);
-    Raw_PickAt(RAW_BOX_C, 2);
+    Raw_PickAt(RAW_BOX_C, 0);
+    Raw_PickAtWithSettle(RAW_BOX_B, 1);
+    Raw_PickAtFromOrigin(RAW_BOX_C, 2, origin_tick, PICK_RAW_PLUS_GRAB_INTERVAL_MS);  /* A 转一格 → C */
 }
 
 /**
- * @brief 原料区取料（备用路线）：读一次三框颜色 → 算出六种固定路线之一 → 交给对应函数
- * @note  流程：
+ * @brief 原料区三框的一次性观测：摆观察位 → 0x03 → 算出任务码三色开局各落在哪个框
+ * @param pos 输出：pos[i] = 任务码第 i 色**开局**所在框（1=A 2=B 3=C）
+ * @retval 颜色读到的时刻(HAL_GetTick)。Fast 路线第 3 块的间隔从这里起算。
+ * @note  普通路线 Pick_RAW_PLUS 和快速路线 Pick_RAW_PLUS_FAST 共用这一份观测：
  *        1) 摆 POS_OBSERVE_RAW_CENTER（高位、收臂，不挡相机），张开夹爪；
  *        2) **只问一次** 0x03，拿到三个框的初始颜色，下标 0/1/2 = A/B/C 框；
- *        3) 对任务码第 i 个颜色，记下它**开局时**落在哪个框：
- *              pos[i] = 该颜色初始所在格 + 1（1=A 2=B 3=C）；
- *              实际抓哪个框不在这里算 —— 六个函数自己按
- *              (初始格 + 3 - 已抓块数) % 3 从名字推出来；
- *        4) 三个数只可能是六种排列之一，直接调**同名**函数：
- *              A B C → Pick_RAW_ABC   A C B → Pick_RAW_ACB   B A C → Pick_RAW_BAC
- *              B C A → Pick_RAW_BCA   C A B → Pick_RAW_CAB   C B A → Pick_RAW_CBA
- *           六条路线内部**底盘完全不动**，只动臂和转盘。
+ *        3) 对任务码第 i 个颜色，记下它开局落在哪个框。
  *
  *        为什么能一次问完就算出来：原料转盘每抓走一块固定挪一格（方向已实测为
- *        索引 −1），三块的颜色排列因此只有 6 种，开局一次读数就足以定下整条路线；
- *        旧版每抓一块都回观察位重问一次，准但慢，这次换成"一次读、按排列查表"。
- *
- *        三块各占一格，颜色一定齐，所以不做缺色处理 —— 直接按排列查表。
- *        只有 0x03 本身超时（相机没响应）才原样返回：那时 box_color[] 是上一轮的
- *        旧值，照着抓会连错三块。
+ *        索引 −1），三块的颜色排列因此只有 6 种，开局一次读数就足以定下整条路线。
+ *        三块各占一格，颜色一定齐，所以不做缺色处理。
+ *        只有 0x03 本身超时（相机没响应）时 box_color[] 还是上一轮的旧值，
+ *        照着抓会连错三块 —— 这是已知的取舍（相机不应答时整轮都不可信）。
  *        0x02 的视觉对正已搬到 Pick_Correct()，这里不做。
- *
- *        调用关系：task.c 的 `case Pick1` 直接调用本函数；六种路线的起始间隔统一由
- *        pick_task.h 中的 PICK_RAW_PLUS_GRAB_INTERVAL_MS 宏（单位：毫秒）控制。
  */
-void Pick_RAW_PLUS(void)
+static uint32_t Raw_ObserveThreeBoxes(uint8_t pos[3])
 {
     uint8_t *Pick_Color = Pick_Color_List();
     uint8_t  box[3];                    /* 开局读一次的三框颜色: 0=A 1=B 2=C */
-    uint8_t  pos[3];                    /* 任务码第 i 色开局落在哪个框：1=A 2=B 3=C */
 
     Pick_JumpTo POS_OBSERVE_RAW_CENTER;   /* 要看清三个框，得摆到观察位 */
     Pick_Gripper_Observe();             /* 张开，别挡住相机 */
-    HAL_Delay(700);                    /* 等相机输出稳定(上电/切模式后头几帧不可信) */
+    HAL_Delay(600);                     /* 等相机输出稳定(上电/切模式后头几帧不可信) */
 
-    Cam_SwitchTo(03);           /* 相机没响应就不猜，直接收工 */
+    Cam_SwitchTo(03);                   /* 相机没响应就不猜，直接收工 */
 
     for(uint8_t k = 0; k < 3U; k++)
     {
@@ -509,26 +501,55 @@ void Pick_RAW_PLUS(void)
         pos[i] = (uint8_t)(k + 1U);     /* 转成 1=A 2=B 3=C */
     }
 
-    AGV_Position_Translate(20, 30, 0);   /* 先横向挪到中间，方便相机看清三框 */
+    return HAL_GetTick();               /* 颜色已拿到：Fast 路线第 3 块的间隔从这儿起算 */
+}
 
-    /* 六种初始排列查表，函数名就是这串数（见上面的路线表）。
-       PICK_RAW_PLUS_USE_FAST 是编译期开关：0=普通版，1=Fast 版（第 2→3 块不等）。 */
-#if PICK_RAW_PLUS_USE_FAST
-    if     (pos[0] == 1U && pos[1] == 2U && pos[2] == 3U) Pick_RAW_ABC_Fast();
-    else if(pos[0] == 1U && pos[1] == 3U && pos[2] == 2U) Pick_RAW_ACB_Fast();
-    else if(pos[0] == 2U && pos[1] == 1U && pos[2] == 3U) Pick_RAW_BAC_Fast();
-    else if(pos[0] == 2U && pos[1] == 3U && pos[2] == 1U) Pick_RAW_BCA_Fast();
-    else if(pos[0] == 3U && pos[1] == 1U && pos[2] == 2U) Pick_RAW_CAB_Fast();
-    else if(pos[0] == 3U && pos[1] == 2U && pos[2] == 1U) Pick_RAW_CBA_Fast();
-#else
+/**
+ * @brief 原料区取料（普通路线）：一次观测三框颜色 → 按初始排列分派给六个普通函数
+ * @note  六条路线内部**底盘完全不动**，只动臂和转盘；相邻两块按
+ *        PICK_RAW_PLUS_GRAB_INTERVAL_MS 的起始间隔走，等待期间会先摆到下一块
+ *        上方 30mm 的等待位（见 Raw_PickAtWithInterval）。
+ *        调用关系：task.c 的 `case Pick1` 直接调用本函数。
+ */
+void Pick_RAW_PLUS(void)
+{
+    uint8_t pos[3];                     /* 任务码第 i 色开局落在哪个框：1=A 2=B 3=C */
+
+    Raw_ObserveThreeBoxes(pos);
+
+    /* 六种初始排列查表，函数名就是这串数（见上面的路线表） */
     if     (pos[0] == 1U && pos[1] == 2U && pos[2] == 3U) Pick_RAW_ABC();
     else if(pos[0] == 1U && pos[1] == 3U && pos[2] == 2U) Pick_RAW_ACB();
     else if(pos[0] == 2U && pos[1] == 1U && pos[2] == 3U) Pick_RAW_BAC();
     else if(pos[0] == 2U && pos[1] == 3U && pos[2] == 1U) Pick_RAW_BCA();
     else if(pos[0] == 3U && pos[1] == 1U && pos[2] == 2U) Pick_RAW_CAB();
     else if(pos[0] == 3U && pos[1] == 2U && pos[2] == 1U) Pick_RAW_CBA();
-#endif
-    AGV_Position_Translate(15, 50, 1);   /* 先横向挪到中间，方便相机看清三框 */
+
+    Pick_JumpTo POS_RUN;
+}
+
+/**
+ * @brief 原料区取料（快速路线）：一次观测三框颜色 → 按初始排列分派给六个 Fast 函数
+ * @note  观测流程与 Pick_RAW_PLUS 完全一样（共用 Raw_ObserveThreeBoxes）；
+ *        差别在六条 Fast 路线的抓取框和第 2 块前的等待（见上面的 Fast 路线表）。
+ *        观测函数返回的"读到颜色的时刻"会原样传给 Fast 函数，作为第 3 块
+ *        间隔的起算点（不是从第 2 块开始算）。
+ *        原来的 PICK_RAW_PLUS_USE_FAST 编译开关已拆掉，本函数单独存在 ——
+ *        要切路线，在上层把 Pick_RAW_PLUS 换成 Pick_RAW_PLUS_FAST 即可。
+ */
+void Pick_RAW_PLUS_FAST(void)
+{
+    uint8_t  pos[3];                    /* 任务码第 i 色开局落在哪个框：1=A 2=B 3=C */
+    uint32_t origin_tick;               /* 相机报完三框颜色的时刻 */
+
+    origin_tick = Raw_ObserveThreeBoxes(pos);
+
+    if     (pos[0] == 1U && pos[1] == 2U && pos[2] == 3U) Pick_RAW_ABC_Fast(origin_tick);
+    else if(pos[0] == 1U && pos[1] == 3U && pos[2] == 2U) Pick_RAW_ACB_Fast(origin_tick);
+    else if(pos[0] == 2U && pos[1] == 1U && pos[2] == 3U) Pick_RAW_BAC_Fast(origin_tick);
+    else if(pos[0] == 2U && pos[1] == 3U && pos[2] == 1U) Pick_RAW_BCA_Fast(origin_tick);
+    else if(pos[0] == 3U && pos[1] == 1U && pos[2] == 2U) Pick_RAW_CAB_Fast(origin_tick);
+    else if(pos[0] == 3U && pos[1] == 2U && pos[2] == 1U) Pick_RAW_CBA_Fast(origin_tick);
 
     Pick_JumpTo POS_RUN;
 }
@@ -574,7 +595,6 @@ void Place_Correct_Low(void)
    直到 |err| 进死区(ANGLE_DB)或迭代用完。单次修正会残留一部分误差（相机的
    偏角本身有噪声、AGV_SetYaw 也有到位死区），叠到放置时就是斜着下爪。
    `PLACE_CORRECT_ANGLE_SGN` 跟相机侧的约定绑定：实车越修越歪就取反。 */
-#define PLACE_CORRECT_HIGH_MS               800U   /* 高位圆环2 粗修正时间 */
 #define PLACE_CORRECT_ANGLE_SHIFT_MM        70U     /* 移位距离：沿车头方向 7cm */
 #define PLACE_CORRECT_ANGLE_SHIFT_DIR       1U      /* GoStraight: 1=向前(当作"左")，0=向后(当作"右") */
 #define PLACE_CORRECT_ANGLE_SGN             (-1.0f) /* 实车越修越歪 → 取反（已按实车改成 -1）*/
@@ -597,7 +617,7 @@ void Place_Correct_High(void)
 
     if(Cam_SwitchTo(04))                /* 偏差落到全局 dx/dy */
     {
-        AGV_Correct(PLACE_CORRECT_HIGH_MS);
+        AGV_Correct(400);
     }
 }
 

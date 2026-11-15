@@ -6,39 +6,46 @@
 #define POS_RUN                ( 90.0f,  60.0f,   10.0f )   // 车移动时候位置
 
 //====================== 车上放置位置 =====================
-#define POS_CAR                ( 57.0f,  51.0f,   30.0f )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
+#define POS_CAR                ( 56.0f,  51.0f,   30.0f )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
 #define PICK_TURN_ANG_A         30.0f
 #define PICK_TURN_ANG_B        150.0f
 #define PICK_TURN_ANG_C        270.0f
 
 //====================== 原料区位置 =====================
-#define POS_RAW_A              (195.0f, 79.0f,  155.0f )   // 原料区抓取位置左前
+#define POS_RAW_A              (191.0f, 79.0f,  157.0f )   // 原料区抓取位置左前
 #define POS_RAW_B              (180.0f, 80.0f,    2.0f )   // 原料区抓取位置下
-#define POS_RAW_C              (164.0f, 77.0f,  155.0f )   // 原料区抓取位置右前
+#define POS_RAW_C              (163.0f, 77.0f,  157.0f )   // 原料区抓取位置右前
 #define POS_OBSERVE_RAW_A      (180.0f,  25.0f,    2.0f )   // 原料区抓取位置下 之抓取A位置
 #define POS_OBSERVE_RAW_CENTER (180.0f,  5.0f,   95.0f )   // pick_plus时候的观察位置
 
+/* 原料区"抓取前等待位"：角度/半径与对应的抓取位完全相同，高度抬高 30mm。
+   Raw_PickAtWithInterval 的间隔等待期间臂就停在这里（见 pick_task.c）。
+   ⚠ 高度轴 0 位在上、数值越大臂越低，所以"抬高 30mm"= 高度数值减 30。
+   ⚠ 三个数是按当前 POS_RAW_x 抄下来的（宏是 (角度,高度,半径) 三合一，
+      没法在调用处只对高度做运算）—— 以后改抓取位高度时，这里要一起改。 */
+#define POS_RAW_A_APPROACH    (191.0f, 49.0f,  157.0f )   // POS_RAW_A 上方 30mm
+#define POS_RAW_B_APPROACH    (180.0f, 50.0f,    2.0f )   // POS_RAW_B 上方 30mm
+#define POS_RAW_C_APPROACH    (163.0f, 47.0f,  157.0f )   // POS_RAW_C 上方 30mm
+
 //====================== 圆环放置位置 =====================
-#define POS_1                  (POS_OBSERVE_RING_ANGLE + 40.5f, 160.0f,   68.0f )   // 圆环左边
-#define POS_2                  (POS_OBSERVE_RING_ANGLE        , 160.0f,   22.0f )   // 圆环中间
-#define POS_3                  (POS_OBSERVE_RING_ANGLE - 39.1f, 160.0f,   89.0f )   // 圆环右边
-#define POS_1_HIGE             (POS_OBSERVE_RING_ANGLE + 40.5f, 100.0f,   75.8f )   // 圆环物块左边
-#define POS_2_HIGE             (POS_OBSERVE_RING_ANGLE        , 100.0f,   25.0f )   // 圆环物块中间
-#define POS_3_HIGE             (POS_OBSERVE_RING_ANGLE - 39.1f, 100.0f,   88.5f )   // 圆环物块右边
-#define POS_OBSERVE_RING_LOW   (POS_OBSERVE_RING_ANGLE        , 140.0f,   18.0f )   // 观察圆环位置 细修正时候
-#define POS_OBSERVE_RING_MIDDLE (POS_OBSERVE_RING_ANGLE       ,  80.0f,   18.0f )   // 观察暂存区上 料块位置
-#define POS_OBSERVE_RING_HIGH  (POS_OBSERVE_RING_ANGLE        ,  55.0f,   18.0f )   // 观察三个圆环 粗修正的时候对角度修正的时候使用
+#define POS_1                  (220.5f, 158.5f,   67.5f )   // 圆环左边 (XYZ均 -1.5)
+#define POS_2                  (180.0f, 158.5f,   20.5f )   // 圆环中间 (XYZ均 -1.5)
+#define POS_3                  (140.9f, 158.5f,   87.5f )   // 圆环右边 (XYZ均 -1.5)
+#define POS_1_HIGE             (220.5f,  98.5f,   74.3f )   // 圆环物块左边 (XYZ均 -1.5)
+#define POS_2_HIGE             (180.0f,  98.5f,   23.5f )   // 圆环物块中间 (XYZ均 -1.5)
+#define POS_3_HIGE             (140.9f,  98.5f,   87.0f )   // 圆环物块右边 (XYZ均 -1.5)
+#define POS_OBSERVE_RING_LOW   (180.0f, 138.5f,   16.5f )   // 观察圆环位置 细修正时候
+#define POS_OBSERVE_RING_MIDDLE (180.0f,  78.5f,   16.5f )   // 观察暂存区上 料块位置
+#define POS_OBSERVE_RING_HIGH  (180.0f,  53.5f,   16.5f )   // 观察三个圆环 粗修正的时候对角度修正的时候使用
 
 //====================== 夹爪舵机角度 =====================
 #define PICK_OBSERVE            20.0f   /* 张开观察 */
 #define PICK_GRAB              110.0f   /* 抓住物料 */
-#define PICK_RELEASE            70.0f   /* 放开物料 */
+#define PICK_RELEASE            75.0f   /* 放开物料 */
 
-//====================== 细修正时观测角度 =====================
-#define POS_OBSERVE_RING_ANGLE 181.5f
 
 // 基础值修正
-#define SERVO_Z_BASE_OFFSET      6.0f   /* Z轴旋转舵机基础修正(°) */
+#define SERVO_Z_BASE_OFFSET      7.5f   /* Z轴旋转舵机基础修正(°) */
 #define SERVO_GRIP_BASE_OFFSET   0.0f   /* 夹爪舵机基础修正(°) */
 
 
