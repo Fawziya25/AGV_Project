@@ -12,8 +12,8 @@
 #define PICK_TURN_ANG_C        270.0f
 
 //====================== 原料区位置 =====================
-#define POS_RAW_A              (195.0f, 80.0f,  160.0f )   // 原料区抓取位置左前
-#define POS_RAW_B              (180.0f, 80.0f,    1.0f )   // 原料区抓取位置下
+#define POS_RAW_A              (195.0f, 79.0f,  155.0f )   // 原料区抓取位置左前
+#define POS_RAW_B              (180.0f, 80.0f,    2.0f )   // 原料区抓取位置下
 #define POS_RAW_C              (164.0f, 77.0f,  155.0f )   // 原料区抓取位置右前
 #define POS_OBSERVE_RAW_A      (180.0f,  25.0f,    2.0f )   // 原料区抓取位置下 之抓取A位置
 #define POS_OBSERVE_RAW_CENTER (180.0f,  5.0f,   95.0f )   // pick_plus时候的观察位置
@@ -22,15 +22,15 @@
 #define POS_1                  (POS_OBSERVE_RING_ANGLE + 40.5f, 160.0f,   68.0f )   // 圆环左边
 #define POS_2                  (POS_OBSERVE_RING_ANGLE        , 160.0f,   22.0f )   // 圆环中间
 #define POS_3                  (POS_OBSERVE_RING_ANGLE - 39.1f, 160.0f,   89.0f )   // 圆环右边
-#define POS_1_HIGE             (POS_OBSERVE_RING_ANGLE + 40.5f, 160.0f,   75.8f )   // 圆环物块左边
-#define POS_2_HIGE             (POS_OBSERVE_RING_ANGLE        , 160.0f,   25.0f )   // 圆环物块中间
-#define POS_3_HIGE             (POS_OBSERVE_RING_ANGLE - 39.1f, 160.0f,   88.5f )   // 圆环物块右边
+#define POS_1_HIGE             (POS_OBSERVE_RING_ANGLE + 40.5f, 100.0f,   75.8f )   // 圆环物块左边
+#define POS_2_HIGE             (POS_OBSERVE_RING_ANGLE        , 100.0f,   25.0f )   // 圆环物块中间
+#define POS_3_HIGE             (POS_OBSERVE_RING_ANGLE - 39.1f, 100.0f,   88.5f )   // 圆环物块右边
 #define POS_OBSERVE_RING_LOW   (POS_OBSERVE_RING_ANGLE        , 140.0f,   18.0f )   // 观察圆环位置 细修正时候
 #define POS_OBSERVE_RING_MIDDLE (POS_OBSERVE_RING_ANGLE       ,  80.0f,   18.0f )   // 观察暂存区上 料块位置
 #define POS_OBSERVE_RING_HIGH  (POS_OBSERVE_RING_ANGLE        ,  55.0f,   18.0f )   // 观察三个圆环 粗修正的时候对角度修正的时候使用
 
 //====================== 夹爪舵机角度 =====================
-#define PICK_OBSERVE            10.0f   /* 张开观察 */
+#define PICK_OBSERVE            20.0f   /* 张开观察 */
 #define PICK_GRAB              110.0f   /* 抓住物料 */
 #define PICK_RELEASE            70.0f   /* 放开物料 */
 

@@ -607,7 +607,10 @@ static void Test_Pick_Task(void)
     Pick_Init();
     HWT101_Init(&huart5); /* 初始化HWT101 */
     QRcode_Task(); 
-
+    //Pick_JumpTo POS_2;
+    //Place_Correct_Low();
+    //Place_Correct_Low(); 
+    //Place_Correct_Low(); 
     //
     // HAL_Delay(500);
     // Pick_Gripper_Release();
@@ -628,8 +631,9 @@ static void Test_Pick_Task(void)
     // HAL_Delay(500);
     // Pick_Gripper_Release();
     // Pick_JumpTo POS_RAW_C;
-
-    Pick_Correct();
+     Pick_Correct();
+   //Pick_JumpTo POS_RAW_C;
+   
     //Pick_RAW();
     Pick_RAW_PLUS();
     // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
@@ -644,12 +648,12 @@ static void Test_Pick_Task(void)
     //Pick_ROUGH();
     Pick_JumpTo POS_START;
 
-    QRcode_Task();
-    Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
-    Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
-    Place_ROUGH();
-    HAL_Delay(2000);
-    Pick_ROUGH();
+    //QRcode_Task();
+    // Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    // Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
+    // Place_ROUGH();
+    // HAL_Delay(2000);
+    // Pick_ROUGH();
 
 }
 
@@ -978,7 +982,7 @@ void Test_Switch(void)
     Radar_Init();
 
     //Test_WaitStartKey();
-    //Pick_Axis_Init();
+    Pick_Axis_Init();
     switch(6)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置

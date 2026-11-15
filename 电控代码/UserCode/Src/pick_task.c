@@ -492,7 +492,7 @@ void Pick_RAW_PLUS(void)
 
     Pick_JumpTo POS_OBSERVE_RAW_CENTER;   /* 要看清三个框，得摆到观察位 */
     Pick_Gripper_Observe();             /* 张开，别挡住相机 */
-    HAL_Delay(1000);                    /* 等相机输出稳定(上电/切模式后头几帧不可信) */
+    HAL_Delay(700);                    /* 等相机输出稳定(上电/切模式后头几帧不可信) */
 
     Cam_SwitchTo(03);           /* 相机没响应就不猜，直接收工 */
 
@@ -508,6 +508,8 @@ void Pick_RAW_PLUS(void)
 
         pos[i] = (uint8_t)(k + 1U);     /* 转成 1=A 2=B 3=C */
     }
+
+    AGV_Position_Translate(20, 30, 0);   /* 先横向挪到中间，方便相机看清三框 */
 
     /* 六种初始排列查表，函数名就是这串数（见上面的路线表）。
        PICK_RAW_PLUS_USE_FAST 是编译期开关：0=普通版，1=Fast 版（第 2→3 块不等）。 */
@@ -526,6 +528,7 @@ void Pick_RAW_PLUS(void)
     else if(pos[0] == 3U && pos[1] == 1U && pos[2] == 2U) Pick_RAW_CAB();
     else if(pos[0] == 3U && pos[1] == 2U && pos[2] == 1U) Pick_RAW_CBA();
 #endif
+    AGV_Position_Translate(15, 50, 1);   /* 先横向挪到中间，方便相机看清三框 */
 
     Pick_JumpTo POS_RUN;
 }

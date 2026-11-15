@@ -28,14 +28,14 @@
 #define PICK_MOTOR_Z_ACC    240  /* 高度电机加速度 */
 #define PICK_MOTOR_R_VEL    600   /* 半径电机速度，保持原样 */
 #define PICK_MOTOR_R_ACC    200    /* 半径电机加速度 */
-#define PICK_MOTOR_DONE_TMO 1000  /* 电机回执等待超时(ms) */
+#define PICK_MOTOR_DONE_TMO 400  /* 电机回执等待超时(ms) */
 #define PICK_SAFE_HEIGHT_MM 2.0f  /* 安全高度(mm)：每次动作先升到此高度再水平移动+转向 */
 
 /* ---- 失败恢复参数 ---- */
-#define PICK_MOTOR_RETRY_TMO    1000  /* 失败后降速重试的等待超时(ms) */
+#define PICK_MOTOR_RETRY_TMO    400  /* 失败后降速重试的等待超时(ms) */
 #define PICK_READ_POS_TMO        300  /* 读 S_CPOS 实时位置的超时(ms) */
-#define PICK_MOTOR_Z_RETRY_VEL   300  /* 高度轴重试速度，低于正常值，减小顶限位冲击 */
-#define PICK_MOTOR_Z_RETRY_ACC    30
+#define PICK_MOTOR_Z_RETRY_VEL   800  /* 高度轴重试速度，低于正常值，减小顶限位冲击 */
+#define PICK_MOTOR_Z_RETRY_ACC    240
 #define PICK_MOTOR_R_RETRY_VEL   100
 #define PICK_MOTOR_R_RETRY_ACC    20
 

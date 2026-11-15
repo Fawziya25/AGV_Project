@@ -14,10 +14,10 @@
         KP偏小(<0.5)则太慢甚至电机爬行。现场标定。
    KI/KD 量级参考角度PID，先不动；抖动就降KP。
    限幅/积分限幅/死区同角度PID习惯。 */
-#define POS_PID_KP      0.20f   /* 参考角度PID的KP：误差1px→1.25RPM */
+#define POS_PID_KP      0.45f   /* 参考角度PID的KP：误差1px→1.25RPM */
 #define POS_PID_KI      0.00f
-#define POS_PID_KD      0.05f
-#define POS_PID_OUT_MAX 200.0f  /* 输出限幅：最大轮速RPM */
+#define POS_PID_KD      0.12f
+#define POS_PID_OUT_MAX 300.0f  /* 输出限幅：最大轮速RPM */
 #define POS_PID_INT_LIM 80.0f   /* 积分限幅(px) */
 /* 相机分辨率放大倍数：误差进PID前先除回旧像素比例。
    分辨率翻倍→同样物理偏差像素值×2，若直接进PID则P/I/D三项都×2，
