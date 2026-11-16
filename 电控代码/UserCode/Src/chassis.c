@@ -271,42 +271,225 @@ void AGV_Position_Rotate(uint8_t dir)
 	Emm_V5_WaitRxFrame(EMM_V5_ACK_TMO_MS);   /* 等命令回帧(原为死等，加超时防卡死) */
 }
 
+/* ==================== 每段"默认路径"与选择规则 ====================
+ * 默认路径 = 无障碍时的常规走法（拐点 + 终点格，不含起点；起点按启停区自动取）。
+ * 选择规则（用户要求）：
+ *   1) 该段雷达规划失败              → 用默认路径；
+ *   2) 规划成功 & 默认路径可用        → 用默认路径；
+ *   3) 规划成功 & 默认路径不可用      → 用规划路径。
+ * "默认可用" = 起点/拐点/终点，以及相邻两点之间同一行或同一列经过的格子，
+ *              在最近一次方格扫描（Radar_GridIsObstacle）里都空闲。
+ * 段号/终点与 radar_config.h 的 LAUNCH_ROUTE_GOALS 一致；改路线时这里要一起改。
+ * ==================================================================== */
+
+#define AGV_DEFAULT_MAX_POINTS  8U
+
+/* 各段默认拐点（不含起点）；下标 = 段号 0..5 */
+static const uint8_t AGV_DefLeg0[]     = { 2U };             /* 起点 → 2  (QRCode) */
+static const uint8_t AGV_DefLeg1[]     = { 4U, 14U };        /* 2 → 4 → 14 (Raw) */
+static const uint8_t AGV_DefLeg2[]     = { 10U };            /* 14 → 10 (Rough) */
+static const uint8_t AGV_DefLeg3[]     = { 20U, 22U };       /* 10 → 20 → 22 (Temp) */
+static const uint8_t AGV_DefLeg4[]     = { 24U, 14U };       /* 22 → 24 → 14 (Raw) */
+static const uint8_t AGV_DefLeg5_Z1[]  = { 24U, 4U };        /* 22 → 24 → 4 (区1 停车格) */
+static const uint8_t AGV_DefLeg5_Z2[]  = { 20U, 0U };        /* 22 → 20 → 0 (区2 停车格) */
+
+/* 各段终点格（= LAUNCH_ROUTE_GOALS），第 1~4 段的起点 = 上一段终点 */
+static const uint8_t AGV_LegGoals[5] = LAUNCH_ROUTE_GOALS;
+
+/* 调试：每段实际用的是哪条路 0=规划 1=默认 2=无路径（debugger 直接 watch） */
+volatile uint8_t AGV_LegSource[RADAR_LEG_COUNT];
+
+/** 方格 → (行,列)：手册 §9 的编号规则（奇数行从右往左） */
+static void AGV_CellRowCol(uint8_t cell, uint8_t *row, uint8_t *col)
+{
+    uint8_t r = (uint8_t)(cell / 5U);
+    uint8_t k = (uint8_t)(cell % 5U);
+
+    *row = r;
+    *col = (uint8_t)(((r & 1U) != 0U) ? (4U - k) : k);
+}
+
+/** (行,列) → 方格 */
+static uint8_t AGV_CellOf(uint8_t row, uint8_t col)
+{
+    if((row & 1U) != 0U) col = (uint8_t)(4U - col);
+    return (uint8_t)(row * 5U + col);
+}
+
+/** 本段起点格：第 0 段按启停区取停车格；第 1~4 段 = 上一段终点；第 5 段 = RADAR_RETURN_FROM_GRID */
+static uint8_t AGV_LegStartCell(uint8_t leg)
+{
+    if(leg == 0U) return (uint8_t)((AGV_Zone == 1U) ? AGV_ZONE1_DEPART_GRID : AGV_ZONE2_DEPART_GRID);
+    if(leg == 5U) return (uint8_t)RADAR_RETURN_FROM_GRID;
+    return AGV_LegGoals[leg - 1U];
+}
+
+/** 两格之间（同一行或同一列）经过的格子是否都空闲；不同行列（斜跨）保守判为不可用 */
+static uint8_t AGV_DefSpanFree(uint8_t from, uint8_t to)
+{
+    uint8_t r0, c0, r1, c1, i, lo, hi;
+
+    AGV_CellRowCol(from, &r0, &c0);
+    AGV_CellRowCol(to,   &r1, &c1);
+
+    if((r0 == r1) && (c0 == c1)) return (Radar_GridIsObstacle(to) ? 0U : 1U);
+
+    if(r0 == r1)                                  /* 同一行：列方向遍历 */
+    {
+        lo = (c0 < c1) ? c0 : c1;
+        hi = (c0 < c1) ? c1 : c0;
+        for(i = lo; i <= hi; i++) { if(Radar_GridIsObstacle(AGV_CellOf(r0, i))) return 0U; }
+        return 1U;
+    }
+    if(c0 == c1)                                  /* 同一列：行方向遍历 */
+    {
+        lo = (r0 < r1) ? r0 : r1;
+        hi = (r0 < r1) ? r1 : r0;
+        for(i = lo; i <= hi; i++) { if(Radar_GridIsObstacle(AGV_CellOf(i, c0))) return 0U; }
+        return 1U;
+    }
+    return 0U;                                    /* 斜跨：默认路径不这么走，判不可用交给规划 */
+}
+
+/** 取一段的默认路径点（不含起点）；返回点数 */
+static uint8_t AGV_DefaultLegPoints(uint8_t leg, uint8_t *out, uint8_t maxOut)
+{
+    const uint8_t *src = 0;
+    uint8_t n = 0U, i;
+
+    switch(leg)
+    {
+        case 0U: src = AGV_DefLeg0; n = (uint8_t)sizeof(AGV_DefLeg0); break;
+        case 1U: src = AGV_DefLeg1; n = (uint8_t)sizeof(AGV_DefLeg1); break;
+        case 2U: src = AGV_DefLeg2; n = (uint8_t)sizeof(AGV_DefLeg2); break;
+        case 3U: src = AGV_DefLeg3; n = (uint8_t)sizeof(AGV_DefLeg3); break;
+        case 4U: src = AGV_DefLeg4; n = (uint8_t)sizeof(AGV_DefLeg4); break;
+        case 5U:
+            if(AGV_Zone == 1U) { src = AGV_DefLeg5_Z1; n = (uint8_t)sizeof(AGV_DefLeg5_Z1); }
+            else               { src = AGV_DefLeg5_Z2; n = (uint8_t)sizeof(AGV_DefLeg5_Z2); }
+            break;
+        default: return 0U;
+    }
+    if(n > maxOut) n = maxOut;
+    for(i = 0U; i < n; i++) out[i] = src[i];
+    return n;
+}
+
+/** 默认路径是否可用：起点 + 每个拐点/终点 + 相邻两点之间的格子都无遮挡 */
+static uint8_t AGV_DefaultLegUsable(uint8_t leg, const uint8_t *pts, uint8_t n)
+{
+    uint8_t prev = AGV_LegStartCell(leg);
+    uint8_t i;
+
+    if(n == 0U) return 0U;
+    if(Radar_GridIsObstacle(prev)) return 0U;
+
+    for(i = 0U; i < n; i++)
+    {
+        if(pts[i] > 24U) return 0U;
+        if(AGV_DefSpanFree(prev, pts[i]) == 0U) return 0U;
+        prev = pts[i];
+    }
+    return 1U;
+}
+
+/**
+ * @brief 选本段实际要走的路径点（默认优先）
+ * @param leg    段号 0..RADAR_LEG_COUNT-1
+ * @param out    输出：方格编号（行驶顺序，不含起点）
+ * @param maxOut out 容量
+ * @return 点数；0 = 没有可用路径（该段应该空转/停下）
+ * @note 规则见文件头注释；同时把结果记到 AGV_LegSource[leg] 方便调试。
+ */
+static uint8_t AGV_SelectLegPoints(uint8_t leg, uint8_t *out, uint8_t maxOut)
+{
+    uint8_t def[AGV_DEFAULT_MAX_POINTS];
+    uint8_t dn, pn, i;
+
+    if(leg >= RADAR_LEG_COUNT) return 0U;
+
+    dn = AGV_DefaultLegPoints(leg, def, (uint8_t)sizeof(def));
+    pn = (Radar_Path[leg].count > maxOut) ? maxOut : Radar_Path[leg].count;
+
+    /* 默认路径可用 → 优先默认（规划成功与否都一样） */
+    if((dn > 0U) && (AGV_DefaultLegUsable(leg, def, dn) != 0U))
+    {
+        for(i = 0U; i < dn; i++) out[i] = def[i];
+        AGV_LegSource[leg] = 1U;
+        return dn;
+    }
+
+    /* 默认不可用：规划成功就用规划路径 */
+    if((Radar_Path[leg].status == 0U) && (pn > 0U))
+    {
+        for(i = 0U; i < pn; i++) out[i] = Radar_Path[leg].points[i];
+        AGV_LegSource[leg] = 0U;
+        return pn;
+    }
+
+    /* 规划失败/无路径：退回默认路径（哪怕默认有遮挡，也比不动强） */
+    if(dn > 0U)
+    {
+        for(i = 0U; i < dn; i++) out[i] = def[i];
+        AGV_LegSource[leg] = 1U;
+        return dn;
+    }
+
+    AGV_LegSource[leg] = 2U;
+    return 0U;
+}
+
 void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
 {
-	/* tarDir = 该段走完后的绝对朝向：0:X+ 1:Y+ 2:X- 3:Y-。
-	   先归一化（4 当 0）：旧写法传 4 会一路传到 AGV_Turn()，而它只认 0~3，
-	   非法值在那里会落到"没有任何分支命中" → 该转的时候不转。 */
-	tarDir &= 3U;
+    uint8_t  pts[RADAR_PATH_MAX_POINTS];
+    uint8_t  n, i;
 
-	for(uint8_t i = 0; i < Radar_Path[RouteID].count; i++)
-	{
-		uint16_t tarX = Points_X[Radar_Path[RouteID].points[i]];
-		uint16_t tarY = Points_Y[Radar_Path[RouteID].points[i]];
-		if(abs(tarX - AGV_Position_X) >= abs(tarY - AGV_Position_Y))
-		{
-			if(AGV_Direction == 1 || AGV_Direction == 3)
-			{
-				/* 车头朝 ±Y、本段要改走 X：在 X+/X- 里选【离最终朝向 tarDir 更近】的那个。
-				   原写法 abs(tarDir-2) >= abs(tarDir-4) + AGV_Turn(4) 有两个错：
-				   ① tarDir=0（要朝 X+）时条件为假 → 选成 X-(反着走)；
-				   ② 4 不是合法方向值（AGV_Turn 只认 0~3）。现已改成 0。 */
-				if(abs((int)tarDir - 2) >= abs((int)tarDir - 0))AGV_Turn(0);
-				else AGV_Turn(2);
-			}
-		}
-		else 
-		{
-			if(AGV_Direction == 0 || AGV_Direction == 2)
-			{
-				/* 同理：车头朝 ±X、要改走 Y 时，在 Y+/Y- 里选离 tarDir 更近的。
-				   这条原本就是对的，只补注释/显式 int 转换，逻辑不动。 */
-				if(abs((int)tarDir - 1) >= abs((int)tarDir - 3))AGV_Turn(3);
-				else AGV_Turn(1);
-			}
-		}
-		AGV_Position_Go(tarX, tarY, 0);
-	}
-	if(RouteID != 5) AGV_Turn(tarDir);
+    /* tarDir = 该段走完后的绝对朝向：0:X+ 1:Y+ 2:X- 3:Y-。
+       先归一化（4 当 0）：旧写法传 4 会一路传到 AGV_Turn()，而它只认 0~3，
+       非法值在那里会落到"没有任何分支命中" → 该转的时候不转。 */
+    tarDir &= 3U;
+
+    if(RouteID >= RADAR_LEG_COUNT) return;
+
+    /* ★ 默认路径优先：规划失败 → 默认；规划成功且默认可用 → 默认；默认不可用 → 规划。
+       详见上面 AGV_SelectLegPoints() 的规则说明。 */
+    n = AGV_SelectLegPoints(RouteID, pts, (uint8_t)sizeof(pts));
+    if(n == 0U) return;
+
+    for(i = 0U; i < n; i++)
+    {
+        uint8_t  cell = pts[i];
+        uint16_t tarX, tarY;
+
+        if(cell > 24U) continue;
+        tarX = Points_X[cell];
+        tarY = Points_Y[cell];
+
+        if(abs(tarX - AGV_Position_X) >= abs(tarY - AGV_Position_Y))
+        {
+            if(AGV_Direction == 1 || AGV_Direction == 3)
+            {
+                /* 车头朝 ±Y、本段要改走 X：在 X+/X- 里选【离最终朝向 tarDir 更近】的那个。
+                   原写法 abs(tarDir-2) >= abs(tarDir-4) + AGV_Turn(4) 有两个错：
+                   ① tarDir=0（要朝 X+）时条件为假 → 选成 X-(反着走)；
+                   ② 4 不是合法方向值（AGV_Turn 只认 0~3）。现已改成 0。 */
+                if(abs((int)tarDir - 2) >= abs((int)tarDir - 0))AGV_Turn(0);
+                else AGV_Turn(2);
+            }
+        }
+        else
+        {
+            if(AGV_Direction == 0 || AGV_Direction == 2)
+            {
+                /* 同理：车头朝 ±X、要改走 Y 时，在 Y+/Y- 里选离 tarDir 更近的。
+                   这条原本就是对的，只补注释/显式 int 转换，逻辑不动。 */
+                if(abs((int)tarDir - 1) >= abs((int)tarDir - 3))AGV_Turn(3);
+                else AGV_Turn(1);
+            }
+        }
+        AGV_Position_Go(tarX, tarY, 0);
+    }
+    if(RouteID != 5) AGV_Turn(tarDir);
 }
 
 #if Run_With_Radar
@@ -378,9 +561,6 @@ void AGV_Position_GoBack()
  */
 void AGV_Position_Depart()
 {
-	uint8_t g = (AGV_Zone == 1U) ? (uint8_t)AGV_ZONE1_DEPART_GRID
-	                             : (uint8_t)AGV_ZONE2_DEPART_GRID;
-
 	AGV_Position_Go(Points_X[2], Points_Y[2], 0);
 }
 
