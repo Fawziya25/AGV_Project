@@ -35,7 +35,7 @@
    转盘带料一转 120°，没停稳臂就下去会撞），参数各调各的，互不影响。 */
 
 /* --- Z轴旋转舵机 (TIM1_CH1 = PE9) --- */
-#define SERVO_Z_RAMP_STEPS 20     /* 加减速段步数：越多，加减速距离越长、越缓 */
+#define SERVO_Z_RAMP_STEPS 30     /* 加减速段步数：越多，加减速距离越长、越缓 */
 #define SERVO_Z_RAMP_START 0.3f   /* 起步/收尾首步占 STEP_DEG 的比例(0~1)，越小起步越慢 */
 #define SERVO_Z_STEP_DEG   1.0f   /* 每步角度(°)，越小越慢 */
 #define SERVO_Z_STEP_MS    3.0      /* 每步间隔(ms)，越大越慢 */

@@ -983,7 +983,7 @@ void Test_Switch(void)
     Radar_Init();
 
     //Test_WaitStartKey();
-    //Pick_Axis_Init();
+    Pick_Axis_Init();
     switch(6)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置

@@ -114,9 +114,12 @@ void Pick_MoveTo(float servoZ, float motorZ_mm, float motorR_mm);
 void Pick_Axis_Init(void);
 
 /* 诊断计数：调试器 watch / OLED 用，不参与控制。只在 Z 轴动作后更新。
-   判读：LastStatus=1 正常；=2 驱动器 0xE2 拒收；=0 等到位超时；=3 位置未知（读不回）。 */
-extern volatile uint32_t Pick_Diag_TimeoutCnt;   /* 超时次数 */
-extern volatile uint32_t Pick_Diag_RejectCnt;    /* 0xFD 0xE2 次数 */
+   判读：LastStatus=1 正常；=2 驱动器 0xE2 拒收；=0 等到位超时；=3 位置未知（读不回）。
+   PosConfirmCnt 增长说明"到位帧在丢，但位置差确认把动作救回来了" ——
+   它持续增加而 TimeoutCnt 不增，就是这次改动生效了。 */
+extern volatile uint32_t Pick_Diag_TimeoutCnt;      /* 超时次数 */
+extern volatile uint32_t Pick_Diag_RejectCnt;       /* 0xFD 0xE2 次数 */
+extern volatile uint32_t Pick_Diag_PosConfirmCnt;   /* 到位帧丢失、靠位置差确认救回的次数 */
 extern volatile uint8_t  Pick_Diag_LastStatus;   /* 最近一次 Z 动作结果 */
 extern volatile int32_t  Pick_Diag_LastCpos;     /* 最近一次读回的 Z 位置(脉冲) */
 
