@@ -6,7 +6,7 @@
 #define POS_RUN                ( 90.0f,  60.0f,   10.0f )   // 车移动时候位置
 
 //====================== 车上放置位置 =====================
-#define POS_CAR                ( 56.0f,  51.0f,   30.0f )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
+#define POS_CAR                ( 55.0f,  51.0f,   30.0f )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
 #define PICK_TURN_ANG_A         30.0f
 #define PICK_TURN_ANG_B        150.0f
 #define PICK_TURN_ANG_C        270.0f
@@ -39,13 +39,13 @@
 #define POS_OBSERVE_RING_HIGH  (180.0f,  53.5f,   16.5f )   // 观察三个圆环 粗修正的时候对角度修正的时候使用
 
 //====================== 夹爪舵机角度 =====================
-#define PICK_OBSERVE            20.0f   /* 张开观察 */
-#define PICK_GRAB              110.0f   /* 抓住物料 */
+#define PICK_OBSERVE            19.5f   /* 张开观察 */
+#define PICK_GRAB              105.0f   /* 抓住物料 */
 #define PICK_RELEASE            75.0f   /* 放开物料 */
 
 
 // 基础值修正
-#define SERVO_Z_BASE_OFFSET      7.5f   /* Z轴旋转舵机基础修正(°) */
+#define SERVO_Z_BASE_OFFSET      20.5f   /* Z轴旋转舵机基础修正(°) */
 #define SERVO_GRIP_BASE_OFFSET   0.0f   /* 夹爪舵机基础修正(°) */
 
 

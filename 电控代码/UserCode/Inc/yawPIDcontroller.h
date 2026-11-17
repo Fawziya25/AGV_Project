@@ -42,12 +42,29 @@ typedef struct {
     float output;
 }YawPID_TypeDef;
 
+/* 转弯滞后学习（2026-11-17，修"残差符号"问题）
+   转弯总是"差一点就停"：误差进死区 |e|<0.2° 就发停车，轮子再滑一小段才停住。
+   这个"差一点"的**幅值**是机器属性（死区 + 停位延时 + 齿隙），跟转 90° 还是 180°
+   无关；但它的**方向永远与本次转弯同向**——所以补偿时必须乘本次转向，不能直接用
+   上一次残差的正负号。原来的写法把带符号的 RotatingOffset 直接减掉，符号对不对
+   取决于"下一次转弯和这次是不是同向"，等于靠运气。
+   现在只学幅值 RotatingMag，按本次转向加到转角上，与转弯顺序无关。
+   ⚠ 但别期待它带来多少收益：主机仿真 12 次转弯，同向路线 0.11°→0.11°，
+     左右交替路线 0.11°→0.15°（**反而略差**）。因为交替时前后两次的滞后本来就会
+     互相抵消，没有可补偿的系统量，补偿只是把上一次的噪声搬到下一次。
+     真正能把误差压到 0.04° 的是"拿名义航向做绝对反馈"（见改动记录）。 */
+#define YAW_ROT_LAG_GAIN   1.0f    /* 幅值学习增益：1.0 = 直接用上一次的幅值当预测
+                                      （对"每次转弯都差这么多"的常值滞后最准）。
+                                      调小只是平滑，会让常值滞后收敛变慢、残余变大。 */
+#define YAW_ROT_LAG_MAX    0.8f    /* 幅值上限(°)：超过判为异常(打滑/被撞)，不学、清零。
+                                      0.8° ≈ 死区的 4 倍，正常停位不会到 */
+
 typedef struct{
-    float MovingOffset;
+    float MovingOffset;      /* 平移期间的读数漂移(累加，转弯时消费掉) */
     float MovingOffsetStart;
     float MovingOffsetEnd;
-    float RotatingOffset;
-    float Offset;
+    float RotatingOffset;    /* 上一次转弯的残差(带符号，只用于观察/判断方向) */
+    float RotatingMag;       /* 学到的转弯滞后幅值(°，≥0)，按本次转向加进目标角 */
 }YawOffset_TypeDef;
 
 typedef struct

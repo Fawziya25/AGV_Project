@@ -498,17 +498,11 @@ static void Test_WaitStartKey(void)
       收放舵机也由 `Radar_SetDeployed()` 自己初始化，**不会碰机械臂那三路**。
    2) **开跑用的是原有的固定路线函数**（AGV_Position_xxx），不是把雷达规划出的方格路径喂给底盘
       —— 那还需要"方格 → 场地坐标"的映射表（尚未定，见 改动记录 第 60 节）。
-      想用规划结果驱车，接在 `Radar_RunOnce()` 之后调 AGV_Position_Go(x,y,dir) 即可。
-
-   台架只验底盘时把 `TEST_AGV_WITH_RADAR` 置 0：跳过整段雷达（含伸出/收回舵机），
-   免得先等雷达连接超时（8s）或没有雷达时白转一圈舵机。 */
-#ifndef TEST_AGV_WITH_RADAR
-#define TEST_AGV_WITH_RADAR  1
-#endif
+      想用规划结果驱车，接在 `Radar_RunOnce()` 之后调 AGV_Position_Go(x,y,dir) 即可。 */
 
 static void Test_AGV(void)
 {
-#if TEST_AGV_WITH_RADAR
+#if Run_With_Radar
     uint8_t zone = Radar_GetZone();      /* 入口页 C6 选的启停区（下面 Radar_Init 会冲掉，先存） */
 
     /* 雷达收放（舵机第 4 路 SERVO_RADAR = TIM4_CH1/PD12）：
@@ -536,6 +530,8 @@ static void Test_AGV(void)
     AGV_Position_Raw_to_Rough();   HAL_Delay(3000);
     AGV_Position_Rough_to_Temp();  HAL_Delay(3000);
     AGV_Position_Temp_to_Raw();    HAL_Delay(3000);
+    AGV_Position_Raw_to_Rough();   HAL_Delay(3000);
+    AGV_Position_Rough_to_Temp();  HAL_Delay(3000);
     AGV_Position_GoBack();
 }
 
@@ -601,8 +597,18 @@ static void Test_Pick_Task(void)
     // Pick_Correct();
     // Pick_RAW_PLUS(); 
 
-    /* 粗加工区抓取与放置 */
+     /* 粗加工区抓取与放置 */
 
+    // Cam_Init();
+    // Pick_Init();
+    // HWT101_Init(&huart5); /* 初始化HWT101 */
+    // QRcode_Task();
+    // Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    // Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
+    // Place_ROUGH();
+    // Pick_ROUGH();
+
+    /* 其它测试 */
     Cam_Init();
     Pick_Init();
     HWT101_Init(&huart5); /* 初始化HWT101 */
@@ -649,12 +655,6 @@ static void Test_Pick_Task(void)
     //Pick_ROUGH();
     Pick_JumpTo POS_START;
 
-    //QRcode_Task();
-    // Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
-    // Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
-    // Place_ROUGH();
-    // HAL_Delay(2000);
-    // Pick_ROUGH();
 
 }
 
@@ -984,7 +984,7 @@ void Test_Switch(void)
 
     //Test_WaitStartKey();
     Pick_Axis_Init();
-    switch(6)
+    switch(1)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正

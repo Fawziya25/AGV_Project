@@ -86,7 +86,13 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
 {
 	float n = distance/235.62;  // 轮子周长
 	uint32_t p = (uint32_t)(n*3200);
+
+	/* 0 距离不下发：原来无条件发一条 Pos_Control(clk=0) 再 WaitArrive，
+	   电机不一定回"到位"帧，白等 EMM_V5_ARRIVE_TMO_MS(5000ms) 才超时返回 */
+	if(distance == 0U) return;
+
 	dir^=1;
+	Yaw_MovingOffsetStart();	/* 平移本不该改航向：期间读数变化就是航向漂移，下次转弯消费 */
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
 	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
@@ -106,6 +112,8 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
 	Emm_V5_WaitArrive(EMM_V5_ARRIVE_TMO_MS);		// 等电机到位回帧(0xFD 0x9F)，超时兜底不卡死
 
 	HAL_Delay(200);
+
+	Yaw_MovingOffsetEnd();	/* 本次移动期间累计的航向漂移，攒到下一次转弯一起扣 */
 }
 
 /**
@@ -122,6 +130,10 @@ void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 	float n = distance/235.62;  // 轮子周长
 	uint32_t p = (uint32_t)(n*3200);
 
+	/* 0 距离不下发：见 AGV_Position_GoStraight 的说明 */
+	if(distance == 0U) return;
+
+	Yaw_MovingOffsetStart();	/* 平移本不该改航向：期间读数变化就是航向漂移，下次转弯消费 */
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
 	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
@@ -141,6 +153,8 @@ void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 	Emm_V5_WaitArrive(EMM_V5_ARRIVE_TMO_MS);		// 等电机到位回帧(0xFD 0x9F)，超时兜底不卡死
 
 	HAL_Delay(200);
+
+	Yaw_MovingOffsetEnd();	/* 本次移动期间累计的航向漂移，攒到下一次转弯一起扣 */
 }
 
 /**
@@ -170,7 +184,8 @@ void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir)
 	uint16_t dy = (sdy < 0) ? (uint16_t)(-sdy) : (uint16_t)sdy;
 	uint8_t x_flag = (sdx >= 0) ? 1 : 0;
 	uint8_t y_flag = (sdy >= 0) ? 1 : 0;
-	Yaw_MovingOffsetStart();
+	/* 航向漂移改成在 GoStraight/Translate 内部逐次测量（这样工位前那些单独调用的
+	   短移也覆盖到了）；这里不再整段包一层，否则一趟 Go 会被累加两次 */
 	// X方向先行
 	if(priDir == 0)
 	{
@@ -219,7 +234,6 @@ void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir)
 			AGV_Position_Translate(dx, Vel, x_flag);
 		}
 	}
-	Yaw_MovingOffsetEnd();
 	// 重新锚定小车位置
 	AGV_Position_Set(x, y);
 }
@@ -469,10 +483,7 @@ void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
         {
             if(AGV_Direction == 1 || AGV_Direction == 3)
             {
-                /* 车头朝 ±Y、本段要改走 X：在 X+/X- 里选【离最终朝向 tarDir 更近】的那个。
-                   原写法 abs(tarDir-2) >= abs(tarDir-4) + AGV_Turn(4) 有两个错：
-                   ① tarDir=0（要朝 X+）时条件为假 → 选成 X-(反着走)；
-                   ② 4 不是合法方向值（AGV_Turn 只认 0~3）。现已改成 0。 */
+                /* 车头朝 ±Y、本段要改走 X：在 X+/X- 里选离最终朝向 tarDir 更近的那个。 */
                 if(abs((int)tarDir - 2) >= abs((int)tarDir - 0))AGV_Turn(0);
                 else AGV_Turn(2);
             }
@@ -481,8 +492,7 @@ void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
         {
             if(AGV_Direction == 0 || AGV_Direction == 2)
             {
-                /* 同理：车头朝 ±X、要改走 Y 时，在 Y+/Y- 里选离 tarDir 更近的。
-                   这条原本就是对的，只补注释/显式 int 转换，逻辑不动。 */
+                /* 同理：车头朝 ±X、要改走 Y 时，在 Y+/Y- 里选离 tarDir 更近的。 */
                 if(abs((int)tarDir - 1) >= abs((int)tarDir - 3))AGV_Turn(3);
                 else AGV_Turn(1);
             }
@@ -512,28 +522,28 @@ void AGV_Position_Depart()
 void AGV_Position_Qcode_to_Raw()
 {
 	AGV_Position_Cruise(1, 0);
-	AGV_Position_Translate(50, Vel, 0);
+	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
 }
 
 void AGV_Position_Raw_to_Rough()
 {
-	AGV_Position_Translate(50, Vel, 1);
+	AGV_Position_Translate(Raw_Approaching_L, Vel, 1);
 	AGV_Position_Cruise(2, 2);
-	AGV_Position_Translate(20, Vel, 0);
+	AGV_Position_Translate(Rough_Approaching_L, Vel, 0);
 }
 
 void AGV_Position_Rough_to_Temp()
 {
-	AGV_Position_Translate(50, Vel, 1);
+	AGV_Position_Translate(Rough_Approaching_L, Vel, 1);
 	AGV_Position_Cruise(3, 1);
-	AGV_Position_Translate(20, Vel, 0);
+	AGV_Position_Translate(Temp_Approaching_L, Vel, 0);
 }
 
 void AGV_Position_Temp_to_Raw()
 {
-	AGV_Position_Translate(50, Vel, 1);
+	AGV_Position_Translate(Temp_Approaching_L, Vel, 1);
 	AGV_Position_Cruise(4, 0);
-	AGV_Position_Translate(50, Vel, 0);
+	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
 }
 
 /**
@@ -569,34 +579,34 @@ void AGV_Position_Qcode_to_Raw()
 	AGV_Position_Go(Points_X[4], Points_Y[4], 0);
 	AGV_TurnLeft();
 	AGV_Position_Go(Points_X[14], Points_Y[14], 0);
-	AGV_Position_Translate(50, Vel, 0);
+	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
 }
 
 void AGV_Position_Raw_to_Rough()
 {
-	AGV_Position_Translate(50, Vel, 1);
+	AGV_Position_Translate(Raw_Approaching_L, Vel, 1);
 	AGV_TurnRight();
 	AGV_Position_Go(Points_X[10], Points_Y[10], 0);
 	AGV_TurnRight();
-	AGV_Position_Translate(20, Vel, 0);
+	AGV_Position_Translate(Rough_Approaching_L, Vel, 0);
 }
 
 void AGV_Position_Rough_to_Temp()
 {
-	AGV_Position_Translate(20, Vel, 1);
+	AGV_Position_Translate(Rough_Approaching_L, Vel, 1);
 	AGV_Position_Go(Points_X[20], Points_Y[20], 0);
     AGV_TurnRight();
 	AGV_Position_Go(Points_X[22], Points_Y[22], 0);
-	AGV_Position_Translate(20, Vel, 0);
+	AGV_Position_Translate(Temp_Approaching_L, Vel, 0);
 }
 
 void AGV_Position_Temp_to_Raw()
 {
-	AGV_Position_Translate(20, Vel, 1);
+	AGV_Position_Translate(Temp_Approaching_L, Vel, 1);
 	AGV_Position_Go(Points_X[24], Points_Y[24], 0);
     AGV_TurnRight();
 	AGV_Position_Go(Points_X[14], Points_Y[14], 0);
-	AGV_Position_Translate(50, Vel, 0);
+	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
 }
 
 /**

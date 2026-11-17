@@ -213,7 +213,7 @@ void YawOffset_Init(void)
     yawOffset.MovingOffsetStart = 0.0f;
     yawOffset.MovingOffsetEnd = 0.0f;
     yawOffset.RotatingOffset = 0.0f;
-    yawOffset.Offset = 0.0f;
+    yawOffset.RotatingMag = 0.0f;
 }
 
 /**
@@ -238,6 +238,22 @@ static void yawPID_Calculate(void)
         yawPID.error = 0.0f;
         yawPID.integral = 0.0f;
         TurnCpltFlag = 1;
+
+        /* 学"每次转弯都差一点"的幅值。残差方向由本次转向决定，这里只留绝对值；
+           ⚠ 不要再把带符号的 RotatingOffset 直接减到下一个目标上（左右交替时符号是反的）。 */
+        {
+            float r = (yawOffset.RotatingOffset < 0.0f) ? -yawOffset.RotatingOffset
+                                                        :  yawOffset.RotatingOffset;
+            if(r > YAW_ROT_LAG_MAX)
+            {
+                yawOffset.RotatingMag = 0.0f;   /* 异常残差(打滑/被撞)：宁可退回不补偿 */
+            }
+            else
+            {
+                yawOffset.RotatingMag = (1.0f - YAW_ROT_LAG_GAIN) * yawOffset.RotatingMag
+                                      + YAW_ROT_LAG_GAIN * r;
+            }
+        }
     }
     float P_term, I_term, D_term;
     // 比例项
@@ -315,8 +331,10 @@ void AGV_SetYaw(float yaw)
 }
 
 /**
- * @brief 左转
- * 
+ * @brief 左转 90°
+ * @note  目标角 = 当前 + (90 + 学到的滞后幅值) − 平移漂移。
+ *        滞后是"停早了一点"，方向永远与转弯同向，所以是**加**在转角上；
+ *        不能像原来那样把带符号的残差直接减掉（左右交替时会翻倍）。
  * @retval None
  * @author Fawziya
  * @date 2026-08-18
@@ -324,16 +342,16 @@ void AGV_SetYaw(float yaw)
 void AGV_TurnLeft(void)
 {
     yawPID.current = ZeroBias_GetYaw();
-    yawOffset.Offset = yawOffset.MovingOffset + yawOffset.RotatingOffset;
-    target = Yaw_Normalize180(yawPID.current + 90.0f - yawOffset.Offset);
+    target = Yaw_Normalize180(yawPID.current + (90.0f + yawOffset.RotatingMag)
+                                            - yawOffset.MovingOffset);
     AGV_SetYaw(target);
     yawOffset.MovingOffset = 0.0f;   /* 已消费,防止连续转弯时重复套用上次直行偏差 */
     AGV_Direction = (AGV_Direction+1)%4;
 }
 
 /**
- * @brief 右转
- *
+ * @brief 右转 90°
+ * @note  滞后幅值在负方向上照样是"少转一点"，所以是 −(90 + Mag)，符号统一。
  * @retval None
  * @author Fawziya
  * @date 2026-08-18
@@ -341,18 +359,24 @@ void AGV_TurnLeft(void)
 void AGV_TurnRight(void)
 {
     yawPID.current = ZeroBias_GetYaw();
-    yawOffset.Offset = yawOffset.MovingOffset + yawOffset.RotatingOffset;
-    target = Yaw_Normalize180(yawPID.current - 90.0f - yawOffset.Offset);
+    target = Yaw_Normalize180(yawPID.current - (90.0f + yawOffset.RotatingMag)
+                                            - yawOffset.MovingOffset);
     AGV_SetYaw(target);
     yawOffset.MovingOffset = 0.0f;   /* 已消费,防止连续转弯时重复套用上次直行偏差 */
     AGV_Direction = (AGV_Direction+3)%4;
 }
 
+/**
+ * @brief 掉头 180°
+ * @note  滞后幅值同样按"停早一点"处理：末段逼近的动力学只由误差大小决定，
+ *        与总转角无关，所以 90° 学到的幅值可以直接用于 180°。
+ * @retval None
+ */
 void AGV_TurnBack(void)
 {
     yawPID.current = ZeroBias_GetYaw();
-    yawOffset.Offset = yawOffset.MovingOffset + yawOffset.RotatingOffset;
-    target = Yaw_Normalize180(yawPID.current + 180.0f - yawOffset.Offset);
+    target = Yaw_Normalize180(yawPID.current + (180.0f + yawOffset.RotatingMag)
+                                            - yawOffset.MovingOffset);
     AGV_SetYaw(target);
     yawOffset.MovingOffset = 0.0f;   /* 已消费,防止连续转弯时重复套用上次直行偏差 */
     AGV_Direction = (AGV_Direction+2)%4;

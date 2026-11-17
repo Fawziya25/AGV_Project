@@ -19,7 +19,7 @@
 
 #define Vel 350                    // 默认行驶速度(RPM)
 
-#define Run_With_Radar 0 // 是否避障运行，1 = 避障，0 = 不避障
+#define Run_With_Radar 1 // 是否避障运行，1 = 避障，0 = 不避障
 
 /* ---------------- 行驶加速度(0~255，对应 Emm_V5 的 acc 字段) ----------------
    数值越大，起步/停车的加减速越猛；0 = 不插加减速曲线，直接给目标转速。
@@ -27,16 +27,16 @@
 #define AGV_ACC_POS   150           // 位置模式加速度(AGV_Position_GoStraight / Translate)
 #define AGV_ACC_VEL   100            // 速度模式加速度(AGV_Position_Rotate)
 
-#define QRCode 360, 1110           // 二维码区坐标
-#define Raw 1200, 300              // 原料区坐标
-#define Raw_Depart 1200, 400       // 原料区出发点坐标
-#define Rough 1200, 2150           // 粗加工区坐标
-#define Temp 2090, 1230            // 暂存区坐标
-#define Waypoint_LB 360, 300       // 左下角目标点坐标
-#define Waypoint_RB 2090, 300      // 右下角目标点坐标
-#define Waypoint_LF 400, 2150      // 左上角目标点坐标
-#define Waypoint_RF 2090, 2150     // 右上角目标点坐标
-#define Destination 165, 2285        // 目标点坐标
+// #define QRCode 360, 1110           // 二维码区坐标
+// #define Raw 1200, 300              // 原料区坐标
+// #define Raw_Depart 1200, 400       // 原料区出发点坐标
+// #define Rough 1200, 2150           // 粗加工区坐标
+// #define Temp 2090, 1230            // 暂存区坐标
+// #define Waypoint_LB 360, 300       // 左下角目标点坐标
+// #define Waypoint_RB 2090, 300      // 右下角目标点坐标
+// #define Waypoint_LF 400, 2150      // 左上角目标点坐标
+// #define Waypoint_RF 2090, 2150     // 右上角目标点坐标
+// #define Destination 165, 2285        // 目标点坐标
 
 /* ---------------- 启停区 → 小车在位姿（2026-11-01） ----------------
    启动菜单只选启停区；选定后 AGV_Position_ApplyZone(zone) 一次装好三件事：
@@ -59,6 +59,11 @@
 /* 小车当前坐标(mm)。menu.c 要在启动菜单上显示，故在此声明 */
 extern uint16_t AGV_Position_X;
 extern uint16_t AGV_Position_Y;
+
+#define Raw_Approaching_L 50 // 原料区接近距离
+#define Rough_Approaching_L 20 // 粗加工区接近距离
+#define Temp_Approaching_L 20 // 暂存区接近距离
+
 
 /* 按启停区 1/2 设定小车初始坐标与车头朝向（其它值按区2处理）。
    只动坐标/朝向/当前区号，不碰雷达；雷达那边由 Radar_SetZone() 管。 */
