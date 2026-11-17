@@ -14,7 +14,7 @@
 //====================== 原料区位置 =====================
 #define POS_RAW_A              (195.0f, 82.0f,  157.0f )   // 原料区抓取位置左前
 #define POS_RAW_B              (180.0f, 83.0f,    2.0f )   // 原料区抓取位置下
-#define POS_RAW_C              (165.0f, 80.0f,  157.0f )   // 原料区抓取位置右前
+#define POS_RAW_C              (167.0f, 80.0f,  157.0f )   // 原料区抓取位置右前
 #define POS_OBSERVE_RAW_A      (180.0f, 28.0f,    2.0f )   // 原料区抓取位置下 之抓取A位置
 #define POS_OBSERVE_RAW_CENTER (180.0f,  8.0f,   95.0f )   // pick_plus时候的观察位置
 
@@ -25,15 +25,15 @@
       没法在调用处只对高度做运算）—— 以后改抓取位高度时，这里要一起改。 */
 #define POS_RAW_A_APPROACH    (195.0f, 52.0f,  157.0f )   // POS_RAW_A 上方 30mm
 #define POS_RAW_B_APPROACH    (180.0f, 53.0f,    2.0f )   // POS_RAW_B 上方 30mm
-#define POS_RAW_C_APPROACH    (165.0f, 50.0f,  157.0f )   // POS_RAW_C 上方 30mm
+#define POS_RAW_C_APPROACH    (167.0f, 50.0f,  157.0f )   // POS_RAW_C 上方 30mm
 
 //====================== 圆环放置位置 =====================
-#define POS_1                  (223.5f, 161.5f,   67.5f )   // 圆环左边 (XYZ均 -1.5)
-#define POS_2                  (180.0f, 161.5f,   20.5f )   // 圆环中间 (XYZ均 -1.5)
-#define POS_3                  (140.9f, 161.5f,   87.5f )   // 圆环右边 (XYZ均 -1.5)
-#define POS_1_HIGE             (220.5f, 101.5f,   74.3f )   // 圆环物块左边 (XYZ均 -1.5)
-#define POS_2_HIGE             (180.0f, 101.5f,   23.5f )   // 圆环物块中间 (XYZ均 -1.5)
-#define POS_3_HIGE             (140.9f, 101.5f,   87.0f )   // 圆环物块右边 (XYZ均 -1.5)
+#define POS_1                  (225.0f, 165.5f,   74.0f )   // 圆环左边 (XYZ均 -1.5)
+#define POS_2                  (180.0f, 165.5f,   20.5f )   // 圆环中间 (XYZ均 -1.5)
+#define POS_3                  (140.9f, 165.5f,   86.2f )   // 圆环右边 (XYZ均 -1.5)
+#define POS_1_HIGE             (220.5f, 106.5f,   74.3f )   // 圆环物块左边 (XYZ均 -1.5)
+#define POS_2_HIGE             (180.0f, 106.5f,   23.5f )   // 圆环物块中间 (XYZ均 -1.5)
+#define POS_3_HIGE             (140.9f, 106.5f,   87.0f )   // 圆环物块右边 (XYZ均 -1.5)
 #define POS_OBSERVE_RING_LOW   (180.0f, 141.5f,   16.5f )   // 观察圆环位置 细修正时候
 #define POS_OBSERVE_RING_MIDDLE (180.0f,  81.5f,   16.5f )   // 观察暂存区上 料块位置
 #define POS_OBSERVE_RING_HIGH  (180.0f,  56.5f,   16.5f )   // 观察三个圆环 粗修正的时候对角度修正的时候使用
@@ -45,7 +45,7 @@
 
 
 // 基础值修正
-#define SERVO_Z_BASE_OFFSET      20.5f   /* Z轴旋转舵机基础修正(°) */
+#define SERVO_Z_BASE_OFFSET      19.5f   /* Z轴旋转舵机基础修正(°) */
 #define SERVO_GRIP_BASE_OFFSET   12.0f   /* 夹爪舵机基础修正(°) */
 
 

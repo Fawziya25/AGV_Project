@@ -35,16 +35,16 @@
    转盘带料一转 120°，没停稳臂就下去会撞），参数各调各的，互不影响。 */
 
 /* --- Z轴旋转舵机 (TIM1_CH1 = PE9) --- */
-#define SERVO_Z_RAMP_STEPS 45     /* 加减速段步数：越多，加减速距离越长、越缓 */
-#define SERVO_Z_RAMP_START 0.1f   /* 起步/收尾首步占 STEP_DEG 的比例(0~1)，越小起步越慢 */
-#define SERVO_Z_STEP_DEG   1.5f   /* 每步角度(°)，越小越慢 */
-#define SERVO_Z_STEP_MS    1.5      /* 每步间隔(ms)，越大越慢 */
-#define SERVO_Z_SETTLE_MS  200    /* 到位后的物理到位裕量(ms) */
+#define SERVO_Z_RAMP_STEPS 20     /* 加减速段步数：越多，加减速距离越长、越缓 */
+#define SERVO_Z_RAMP_START 0.3f   /* 起步/收尾首步占 STEP_DEG 的比例(0~1)，越小起步越慢 */
+#define SERVO_Z_STEP_DEG   1.0f   /* 每步角度(°)，越小越慢 */
+#define SERVO_Z_STEP_MS    3.0      /* 每步间隔(ms)，越大越慢 */
+#define SERVO_Z_SETTLE_MS  50    /* 到位后的物理到位裕量(ms) */
 
 /* --- 夹爪舵机 (TIM3_CH1 = PA6) --- */
 #define SERVO_G_RAMP_STEPS 30     /* 同 Z轴：加减速段步数 */
 #define SERVO_G_RAMP_START 0.1f   /* 同 Z轴：起步/收尾首步比例 */
-#define SERVO_G_STEP_DEG   2.0f   /* 每步角度(°)，夹爪要慢，可调小 */
+#define SERVO_G_STEP_DEG   1.5f   /* 每步角度(°)，夹爪要慢，可调小 */
 #define SERVO_G_STEP_MS    2      /* 每步间隔(ms)，夹爪要慢，可调大 */
 
 /* --- 车上转盘舵机 (TIM2_CH1 = PA5) ---

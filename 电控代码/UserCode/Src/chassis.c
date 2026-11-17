@@ -45,28 +45,28 @@ void AGV_Position_ApplyZone(uint8_t zone)
 void AGV_Position_Init(void)
 {
 	// 所有拐点坐标(mm)
-	Points_X[0] = 310;
-	Points_Y[0] = 2090;
+	Points_X[0] = 350;
+	Points_Y[0] = 2050;
 	// 2: QRCode
-	Points_X[2] = 310;
+	Points_X[2] = 350;
 	Points_Y[2] = 1200;
-	Points_X[4] = 310;
-	Points_Y[4] = 310;
+	Points_X[4] = 350;
+	Points_Y[4] = 350;
 	// 10: Rough
 	Points_X[10] = 1200;
-	Points_Y[10] = 2090;
+	Points_Y[10] = 2050;
 	Points_X[12] = 1200;
 	Points_Y[12] = 1200;
 	// 14：Raw
 	Points_X[14] = 1200;
-	Points_Y[14] = 310;
-	Points_X[20] = 2090;
-	Points_Y[20] = 2090;
+	Points_Y[14] = 350;
+	Points_X[20] = 2050;
+	Points_Y[20] = 2050;
 	// 22: Temp
-	Points_X[22] = 2090;
+	Points_X[22] = 2050;
 	Points_Y[22] = 1200;
-	Points_X[24] = 2090;
-	Points_Y[24] = 310;
+	Points_X[24] = 2050;
+	Points_Y[24] = 350;
 
 	/* 小车初始坐标/朝向跟着启停区走，两区各有一套（chassis.h 的 AGV_ZONEn_ORIGIN_*）。
 	   这里先按默认区摆好；菜单里选了别的区会再由 AGV_Position_ApplyZone() 覆盖。 */

@@ -100,12 +100,20 @@ void Pick_RAW_A(uint8_t slot);
 void Pick_RAW_B(uint8_t slot);
 void Pick_RAW_C(uint8_t slot);
 
-/* 六种抓取顺序中，相邻两次 Raw_PickAt 的目标起始间隔（毫秒）。 */
-#define PICK_RAW_PLUS_GRAB_INTERVAL_MS 7200U
+/* 原料转盘的一个周期，拆成静止和运动两段（毫秒）：
+     t1 静止 6000ms —— 可以抓；t2 运动 1200ms —— 不能抓。
+   Fast 路线在"到达悬挂高度"时按这个相位判断（见 pick_task.c 的
+   Raw_PickAtFollow），普通路线仍按两段之和作为两次抓取的起始间隔。 */
+#define PICK_RAW_PLUS_STATIC_MS   4500U     /* t1 静止窗口 */
+#define PICK_RAW_PLUS_MOVING_MS   3100U     /* t2 运动窗口 */
+
+/* 一个完整周期 = t1 + t2 = 7200ms。
+   六种抓取顺序中，相邻两次 Raw_PickAt 的目标起始间隔（毫秒）。 */
+#define PICK_RAW_PLUS_GRAB_INTERVAL_MS (PICK_RAW_PLUS_STATIC_MS + PICK_RAW_PLUS_MOVING_MS)
 
 /* Fast 路线第 2 块前的等待(ms)：它紧接第 1 块、没有间隔可等，但从 POS_CAR 到
    原料框是大幅 Z 轴旋转，臂会晃 —— 先摆到目标上方 30mm 的等待位停这么久，
-   等晃动衰减后再下探抓取（见 pick_task.c 的 Raw_PickAtWithSettle）。 */
+   等晃动衰减后再下探抓取（见 pick_task.c 的 Raw_PickAtFollow）。 */
 #define PICK_RAW_APPROACH_SETTLE_MS 200U
 
 /* 原料区取料（普通路线）：摆 POS_OBSERVE_RAW_CENTER 读一次三框颜色(0x03)，
@@ -136,16 +144,24 @@ void Pick_RAW_CAB(void);
 void Pick_RAW_CBA(void);
 
 /* 六种快速抓取路线（Fast 版）。**名称同样 = 开局观测到的初始排列**，与上面六个
-   一一对应。转盘规律同普通路线（索引 −1：A→C、C→B、B→A）。
-   **连抓的是第 1→2 块**：第 2 块紧接第 1 块、不等间隔，抓该颜色初始所在框（此时
-   转盘还没转），只在目标上方 30mm 停 PICK_RAW_APPROACH_SETTLE_MS(500ms) 等晃动
-   衰减；**第 3 块等满一个 PICK_RAW_PLUS_GRAB_INTERVAL_MS**，间隔从
-   **相机 0x03 报完三框颜色的时刻**起算（不是从第 2 块开始算），转盘转一格后抓
-   该颜色初始框 −1（A→C、C→B、B→A）；等待期间同样先摆到上方 30mm，并保证
-   到位后至少停 PICK_RAW_APPROACH_SETTLE_MS(500ms)（剩余间隔不足时兜底）：
+   一一对应。转盘每过一个周期按索引 −1 挪一格（A→C、C→B、B→A）。
+   origin_tick = Raw_ObserveThreeBoxes() 返回的"颜色读到的时刻"，三块都按它计时：
+     第 1 块：抓该颜色初始所在框，**不看时间**；
+     第 2 块：紧接第 1 块出发，目标该颜色初始所在框；
+             **到达悬挂高度(上方 30mm)时判断**：
+               elapsed < t1(PICK_RAW_PLUS_STATIC_MS=6000ms)
+                   → 还在静止窗口，位置没变，直接抓；
+               t1 < elapsed < t1+t2(PICK_RAW_PLUS_MOVING_MS=1200ms)
+                   → 转盘正在转，**先摆到下一格上方悬挂，等到 t1+t2 再抓**；
+               elapsed > t1+t2
+                   → 已经转过格，**直接摆到下一格上方悬挂抓取**；
+     第 3 块：同样按相位比较，但**基准是 origin_tick + 一个整周期**
+             (PICK_RAW_PLUS_GRAB_INTERVAL_MS)，在"静止时间对应的位置"抓
+             （已过几个周期就往索引 −1 方向走几格，与第 2 块用同一套判断）。
+   每块判断完都保证在悬挂位停够 PICK_RAW_APPROACH_SETTLE_MS 等晃动衰减。
+   最快情况（三块都落在第一个静止窗口）的抓取顺序：
      观测 ABC → 抓 A B B      观测 ACB → 抓 A C A      观测 BAC → 抓 B A B
      观测 BCA → 抓 B C C      观测 CAB → 抓 C A A      观测 CBA → 抓 C B C
-   origin_tick = Raw_ObserveThreeBoxes() 返回的"颜色读到的时刻"。
    由 Pick_RAW_PLUS_FAST 分派。 */
 void Pick_RAW_ABC_Fast(uint32_t origin_tick);
 void Pick_RAW_ACB_Fast(uint32_t origin_tick);
