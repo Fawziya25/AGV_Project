@@ -106,7 +106,7 @@ void Pick_RAW_C(uint8_t slot);
 /* Fast 路线第 2 块前的等待(ms)：它紧接第 1 块、没有间隔可等，但从 POS_CAR 到
    原料框是大幅 Z 轴旋转，臂会晃 —— 先摆到目标上方 30mm 的等待位停这么久，
    等晃动衰减后再下探抓取（见 pick_task.c 的 Raw_PickAtWithSettle）。 */
-#define PICK_RAW_APPROACH_SETTLE_MS 500U
+#define PICK_RAW_APPROACH_SETTLE_MS 200U
 
 /* 原料区取料（普通路线）：摆 POS_OBSERVE_RAW_CENTER 读一次三框颜色(0x03)，
    记下任务码第 0/1/2 色开局各落在哪个框，再按这个排列查表分派给下面六个普通函数。

@@ -298,6 +298,9 @@ static void Pick_Axis_EnsureInit(void)
 void Pick_Init(void)
 {
     Servo_Init();
+    HAL_Delay(500);
+    Pick_JumpTo POS_START;  /* 先把臂抬起来，避免碰到车体 */
+    Pick_Gripper_Grab();
 }
 
 /* ==================== 绝对位置模式：高度轴 + 半径轴 ==================== */
@@ -632,13 +635,18 @@ void Pick_Test_MotorR(void)
 void Pick_Test_TurnTable(void)
 {
     uint8_t slot = 0U;
-
+   
     for(;;)
     {
+    //      Pick_JumpTo POS_CAR;
+    // Pick_Gripper_Release();
+    // Pick_Gripper_Grab();
+    
         Pick_TurnTable_Set(slot);      /* 非阻塞启动平滑转动 */
         Pick_TurnTable_Wait();         /* 测试中显式等待转盘停稳 */
         HAL_Delay(1000);               /* 留出观察时间 */
-
+    //     Pick_JumpTo POS_RUN;
+    // Pick_Gripper_Release();
         slot++;
         if(slot > 2U) slot = 0U;       /* 0→1→2→0 循环 */
     }

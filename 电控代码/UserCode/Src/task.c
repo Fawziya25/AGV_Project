@@ -94,8 +94,8 @@ void TaskProc(void)
         case Pick1:
             Pick_Correct();
             //Pick_RAW();
-            //Pick_RAW_PLUS(); 
-            Pick_RAW_PLUS_FAST(); 
+            Pick_RAW_PLUS(); 
+            //Pick_RAW_PLUS_FAST(); 
             TaskCode = Move2;
             break;
         case Move2:

@@ -662,8 +662,8 @@ static void Test_Pick_Task(void)
 static void Test_Pick_POS_Test(void)
 {
     Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
-    HWT101_Init(&huart5); /* 初始化HWT101 */
-    QRcode_Task();
+    //HWT101_Init(&huart5); /* 初始化HWT101 */
+    //QRcode_Task();
     //Key_Scan(&key_zone);
     //============测试夹爪加紧程度===========//
     Pick_JumpTo POS_RUN;
@@ -984,7 +984,7 @@ void Test_Switch(void)
 
     //Test_WaitStartKey();
     Pick_Axis_Init();
-    switch(1)
+    switch(6)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正
