@@ -104,8 +104,8 @@ void Pick_RAW_C(uint8_t slot);
      t1 静止 6000ms —— 可以抓；t2 运动 1200ms —— 不能抓。
    Fast 路线在"到达悬挂高度"时按这个相位判断（见 pick_task.c 的
    Raw_PickAtFollow），普通路线仍按两段之和作为两次抓取的起始间隔。 */
-#define PICK_RAW_PLUS_STATIC_MS   4500U     /* t1 静止窗口 */
-#define PICK_RAW_PLUS_MOVING_MS   3100U     /* t2 运动窗口 */
+#define PICK_RAW_PLUS_STATIC_MS   4200U     /* t1 静止窗口 */
+#define PICK_RAW_PLUS_MOVING_MS   4100U     /* t2 运动窗口 */
 
 /* 一个完整周期 = t1 + t2 = 7200ms。
    六种抓取顺序中，相邻两次 Raw_PickAt 的目标起始间隔（毫秒）。 */

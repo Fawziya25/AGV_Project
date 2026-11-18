@@ -334,13 +334,16 @@ void Emm_V5_ClearRxFrame(void)
 }
 
 /**
-  * @brief    等待电机"到位"回帧(功能码0xFD + 状态0x9F)
-  * @param    tmo_ms ：等待超时(ms)
+  * @brief    等待指定地址的电机"到位"回帧(功能码0xFD + 状态0x9F)
+  * @param    src_mask ：源地址掩码，bit(addr-1)=1 表示接受该地址；0xFF=任意
+  * @param    tmo_ms   ：等待超时(ms)
   * @retval   1=等到到位帧；0=超时
-  * @note     逐帧消费、不区分地址；调用前先用 Emm_V5_ClearRxFrame() 清历史帧。
-  *           四轮同步运动时只要有一个电机报到就算到位。
+  * @note     逐帧消费；只认掩码内的地址。地址在回帧扩展 ID 的高字节，
+  *           与发送时 can_SendCmd 的 ExtId=(addr<<8)|packNum 对应。
+  *           同步运动时只要掩码内**任意一个**电机报到就算到位。
+  *           调用前先用 Emm_V5_ClearRxFrame() 清历史帧。
   */
-uint8_t Emm_V5_WaitArrive(uint32_t tmo_ms)
+uint8_t Emm_V5_WaitArriveMask(uint8_t src_mask, uint32_t tmo_ms)
 {
   uint32_t t0 = HAL_GetTick();
 
@@ -349,14 +352,32 @@ uint8_t Emm_V5_WaitArrive(uint32_t tmo_ms)
     Dbg_Service();                              // 调试服务:到点刷OLED + 响应A8暂停
     if(can.rxFrameFlag)
     {
+      uint8_t addr;
+
       can.rxFrameFlag = false;                  // 消费本帧
       if(can.rxData[0] == 0xFD && can.rxData[1] == 0x9F)
       {
-        return 1;
+        addr = (uint8_t)(can.CAN_RxMsg.ExtId >> 8);
+        if(addr >= 1U && addr <= 8U &&
+           (src_mask & (uint8_t)(1U << (addr - 1U))))
+        {
+          return 1;
+        }
+        /* 不在掩码里的 0x9F 直接丢掉，继续等 */
       }
     }
   }
   return 0;
+}
+
+/**
+  * @brief    等待任意地址的电机"到位"回帧（兼容旧调用）
+  * @param    tmo_ms ：等待超时(ms)
+  * @retval   1=等到到位帧；0=超时
+  */
+uint8_t Emm_V5_WaitArrive(uint32_t tmo_ms)
+{
+  return Emm_V5_WaitArriveMask(0xFFU, tmo_ms);
 }
 
 /**

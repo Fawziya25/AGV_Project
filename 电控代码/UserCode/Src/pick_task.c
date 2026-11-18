@@ -327,7 +327,9 @@ static RawBox Raw_ShiftBox(RawBox box, uint8_t turns)
 
 /* Fast 路线第 2 / 3 块：紧接上一块出发，目标块开局在 box0。
    origin_tick 是**这一块自己的计时基准**：第 2 块传相机读数时刻，第 3 块传
-   它 + 一个整周期（调用处加的）。摆到 box0 上方 30mm（悬挂高度）后按它判断：
+   它 + 一个整周期（调用处加的）。摆到 box0 上方 30mm（悬挂高度）后：
+     **还没到 origin_tick → 先原地等到 origin_tick**（第 3 块因此会等满一个
+     周期再动手）；到了之后再按相位判断：
      elapsed 落在静止窗口(phase < t1)
          → 转盘没在动，它就在"已转过 turns 格"的位置，直接抓
            （turns 为 0 就是还在 box0；已经超过整周期时位置自然跟着变）；
@@ -347,11 +349,19 @@ static void Raw_PickAtFollow(RawBox box0, uint8_t slot, uint32_t origin_tick)
     Raw_MoveToApproach(box0);            /* 先到开局位置上方悬挂，到这里才判相位 */
     arrived_ms = HAL_GetTick();
 
-    elapsed_ms = HAL_GetTick() - origin_tick;
-    if((int32_t)elapsed_ms < 0)
+    /* 还没到这一块的基准时刻（第 3 块传的是 origin_tick + 一个周期）：先等到基准。
+       ⚠ 不能像旧写法那样把负的 elapsed 直接钳成 0 —— 那会被当成"静止窗口、
+       转过 0 格"，第 3 块刚到就抓，等待就消失了。 */
     {
-        elapsed_ms = 0U;    /* 还没到基准(第 3 块传的是 origin_tick+一个周期)：按 0 算 */
+        int32_t early_ms = (int32_t)(origin_tick - HAL_GetTick());
+
+        if(early_ms > 0)
+        {
+            HAL_Delay((uint32_t)early_ms);
+        }
     }
+
+    elapsed_ms = HAL_GetTick() - origin_tick;
     turns      = (uint8_t)(elapsed_ms / cycle);      /* 已经转过的整格数 */
     phase      = elapsed_ms % cycle;
 

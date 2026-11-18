@@ -39,18 +39,35 @@
 
 /* ---- 到位判定：命令回执 + 到位帧 + 位置差，三路并行 ----
    Z 轴经常收不到到位帧(0x9F)：回帧通道是单槽的，别的帧一来就把 0x9F 覆盖掉，
-   但电机实际上已经走到位。所以按下面的节拍确认（每轮总超时 1 秒）：
-     · **收到 0xFD 0x02（命令已被电机接收）之前**：每 50ms 重发一次绝对目标。
+   但电机实际上已经走到位。所以按下面的节拍确认（每轮总超时见 PICK_ARRIVE_TMO）：
+     · **收到 0xFD 0x02（命令已被电机接收）之前**：每 RESEND_MS 重发一次绝对目标。
        命令帧本身丢了也能补上；绝对目标幂等，重发不会让它多走。
-     · **收到 0x02 之后**：每 50ms 读一次 S_CPOS，同时继续认到位帧；
-       0x9F 到位、或位置差 ≤ PICK_ARRIVE_TOL_MM，满足一个就算到位。
-   ⚠ 5mm 是宽容差（Z 轴 53 脉冲/mm，5mm≈265 脉冲）；想更严就改小，
-     但要留出机械回程/齿隙的量，否则会退化成"经常判不到位"。 */
+     · **收到 0x02 之后**：按 POLL_MS 的节拍读 S_CPOS，同时继续认到位帧；
+       0x9F 到位、或位置差 ≤ PICK_ARRIVE_TOL_MM，满足一个就算到位（"或"）。
+
+   ⚠ 位置差这一路的两个前提：
+     1) **`PICK_CPOS_UNITS_PER_REV` 要对**：Pick_MotorZ_MoveToMM() 的目标是脉冲
+        (3200/圈)，而手册里 0x36 的回值 Emm 固件是 65536/圈、X 固件是 0.1°。
+        `Pick_CposToPul()` 会按这个宏把回值换算成脉冲；宏填错时这一路会一直不
+        成立（不影响 0x9F，但"提前走"就没了）。先用 30mm 行程核对一次。
+     2) **轮询要够快**：Z 轴 60mm/圈、VEL=800RPM → 800mm/s。1cm 的窗口只持续
+        约 25ms（±1cm 共 20mm），50ms 一拍会直接跨过去；所以 POLL_MS 取 10ms。
+        如果还抓不到，就把高度速度降下来，或继续减小 POLL_MS。 */
 #define PICK_ARRIVE_TMO         600  /* 到位确认总超时(ms) */
 #define PICK_ARRIVE_RESEND_MS   50    /* 未收到 0x02 前重发绝对目标的间隔(ms) */
-#define PICK_ARRIVE_POLL_MS     50    /* 位置查询/回帧检查的节拍(ms) */
-#define PICK_ARRIVE_TOL_MM      40.0f  /* 位置差判到位的容差(mm) */
-#define PICK_ARRIVE_READ_TMO    20    /* 单次读 S_CPOS 的超时(ms) */
+#define PICK_ARRIVE_POLL_MS     20    /* 位置查询/回帧检查的节拍(ms)：1cm 窗口下必须够快 */
+#define PICK_ARRIVE_TOL_MM      40.0f  /* 位置差判到位的容差(mm)：1cm 就提前走 */
+#define PICK_ARRIVE_READ_TMO    10    /* 单次读 S_CPOS 的超时(ms) */
+
+/* ---- 到位模式（Pick_MotorZ_MoveToMM 的第二个参数） ----
+     PICK_ARRIVE_FAST  : 0x9F 到位帧 **或** 位置差 ≤ 容差，谁先满足都算到位。
+                         用在 Π 形轨迹第一步"抬到安全高度"：差一点就开始转向没问题，
+                         没必要等电机完全停下。
+     PICK_ARRIVE_EXACT : **只认 0x9F 到位帧**，不做位置查询。
+                         用在最终下探：必须真正到位；顺带避免"读位置前清回帧"把
+                         刚到的 0x9F 吃掉。 */
+#define PICK_ARRIVE_FAST        0U
+#define PICK_ARRIVE_EXACT       1U
 
 /* 读回的 S_CPOS(驱动器绝对位置) 与 MCU 跟踪值的符号关系：
    +1=同向，-1=反向。若实测读回位置与 mm 坐标增减相反，把这里改成 (-1)。 */
@@ -154,10 +171,19 @@ static void Pick_MotorRecover(uint8_t addr)
 }
 
 /**
- * @brief 读回电机实时位置(S_CPOS / 0x36)，用于失败后重同步 MCU 的跟踪值
+ * @brief 读回电机实时位置(S_CPOS / 0x36)，用于到位判定和失败后重同步
  * @retval 1=读成功；0=超时或回帧布局不符
- * @note  按标准回帧 [0xFD, 0x36, p3, p2, p1, p0] 解析。若实际固件回帧不同，
- *        本函数只会返回 0，随后走"位置未知→本次动作中止"的安全路径，不会乱发命令。
+ * @note  按用户手册 5.5.13 的回帧解析。本工程的 CAN 层把**地址放在扩展 ID 里**
+ *        （见 can_SendCmd：ExtId = addr<<8），所以数据帧从功能码开始：
+ *          rxData[0] = 0x36 功能码
+ *          rxData[1] = 符号(0x00 正 / 0x01 负)
+ *          rxData[2..5] = 电机实时位置，**32 位大端**（手册范围 00000000-FFFFFFFF）
+ *          rxData[6] = 0x6B 校验
+ *        手册另一处又写"位置占 3 字节"，两种说法自相矛盾 —— 这里两种都认：
+ *        校验在 [6] 按 4 字节解析，校验在 [5] 按 3 字节解析，谁先匹配用谁。
+ *        旧版按 [0xFD, 0x36, ...] 匹配，和实际回帧对不上 → 永远读超时，这就是
+ *        "位置查询没有效果"的原因。
+ *        ⚠ 回值单位见 PICK_CPOS_UNITS_PER_REV，比较前用 Pick_CposToPul() 换算。
  */
 static uint8_t Pick_ReadAxisPosTmo(uint8_t addr, int32_t *pos, uint32_t tmo_ms)
 {
@@ -175,14 +201,26 @@ static uint8_t Pick_ReadAxisPosTmo(uint8_t addr, int32_t *pos, uint32_t tmo_ms)
         if(can.rxFrameFlag)
         {
             can.rxFrameFlag = false;
-            if(can.rxData[0] == 0xFD && can.rxData[1] == 0x36)
+
+            if(can.rxData[0] == 0x36)
             {
-                u = ((uint32_t)can.rxData[2] << 24) |
-                    ((uint32_t)can.rxData[3] << 16) |
-                    ((uint32_t)can.rxData[4] << 8)  |
-                    ((uint32_t)can.rxData[5]);
-                *pos = (int32_t)u;
-                return 1;
+                if(can.rxData[6] == 0x6B)          /* 36 符号 p3 p2 p1 p0 6B */
+                {
+                    u = ((uint32_t)can.rxData[2] << 24) |
+                        ((uint32_t)can.rxData[3] << 16) |
+                        ((uint32_t)can.rxData[4] << 8)  |
+                        ((uint32_t)can.rxData[5]);
+                    *pos = (can.rxData[1] != 0U) ? -(int32_t)u : (int32_t)u;
+                    return 1;
+                }
+                if(can.rxData[5] == 0x6B)          /* 兼容 3 字节：36 符号 p2 p1 p0 6B */
+                {
+                    u = ((uint32_t)can.rxData[2] << 16) |
+                        ((uint32_t)can.rxData[3] << 8)  |
+                        ((uint32_t)can.rxData[4]);
+                    *pos = (can.rxData[1] != 0U) ? -(int32_t)u : (int32_t)u;
+                    return 1;
+                }
             }
         }
     }
@@ -210,23 +248,45 @@ static int32_t Pick_ArriveTolPul(uint8_t addr)
     return (int32_t)(mm * PICK_MOTOR_R_MM_PUL + 0.5f);
 }
 
+/* 0x36 回值的单位：一圈多少单位。手册 5.5.13：
+     Emm 固件：0-65535 表示一圈 0-360°              → 65536
+     X 固件  ：角度 = 回值/10（0.1°）                → 3600
+     如果实测回值就是脉冲（3200/圈，和位置命令同单位）→ 改成 3200
+   ⚠ 上实车先核对一次：走 30mm（半圈），回值变化量
+     ≈32768 → Emm；≈1800 → X；≈1600 → 脉冲。 */
+#define PICK_CPOS_UNITS_PER_REV   65536.0f
+
+/* 把 0x36 回值换算成与位置命令同一单位(脉冲)，好和 target 直接比较。
+   不换算的话单位差 20 倍(65536/3200)，位置差判据永远不会成立。 */
+static int32_t Pick_CposToPul(uint8_t addr, int32_t pos)
+{
+    float pul_per_rev = (addr == PICK_MOTOR_Z_ADDR)
+                        ? (float)PICK_MOTOR_Z_PUL_PER_REV
+                        : (float)PICK_MOTOR_R_PUL_PER_REV;
+
+    return (int32_t)((float)pos * pul_per_rev / PICK_CPOS_UNITS_PER_REV);
+}
+
 /* 前向声明：Pick_WaitArrivePoll 里要重发绝对目标，但 Pick_StepperIssue 定义在后面 */
 static void Pick_StepperIssue(uint8_t addr, int32_t target, uint16_t vel, uint8_t acc);
 
 /**
- * @brief 发完绝对目标后的到位确认：重发 + 到位帧 + 位置差，按 50ms 节拍并行
+ * @brief 发完绝对目标后的到位确认：重发 + 到位帧(+ 位置差)，按节拍并行
  * @param target 绝对目标(脉冲)
  * @param vel/acc 重发时用的速度/加速度（与首次下发一致）
+ * @param mode  PICK_ARRIVE_FAST = 0x9F 或位置差谁先满足都算；
+ *              PICK_ARRIVE_EXACT = 只认 0x9F，不读位置
  * @retval PICK_MOVE_OK / PICK_MOVE_REJECT / PICK_MOVE_TIMEOUT
  * @note  1) 收到 `0xFD 0x02`(命令已接收)之前，每 PICK_ARRIVE_RESEND_MS 重发一次
  *           同一绝对目标 —— 命令帧丢了也能补上，绝对目标幂等不会多走；
- *        2) 每 PICK_ARRIVE_POLL_MS 读一次 S_CPOS，同时认到位帧：
+ *        2) FAST 模式下每 PICK_ARRIVE_POLL_MS 读一次 S_CPOS：
  *           `0xFD 0x9F` 或 |位置 − 目标| ≤ 容差，满足一个就算到位；
+ *           EXACT 模式跳过位置查询（也避免读位置前的清帧吃掉 0x9F）；
  *        3) 收到 `0xFD 0xE2` 立即按"拒收"返回（命令没执行，不用再等）；
- *        4) 总超时 PICK_ARRIVE_TMO(1s)。
+ *        4) 总超时 PICK_ARRIVE_TMO。
  */
 static uint8_t Pick_WaitArrivePoll(uint8_t addr, int32_t target,
-                                   uint16_t vel, uint8_t acc)
+                                   uint16_t vel, uint8_t acc, uint8_t mode)
 {
     uint32_t t0        = HAL_GetTick();
     uint32_t last_send = t0;
@@ -248,17 +308,23 @@ static uint8_t Pick_WaitArrivePoll(uint8_t addr, int32_t target,
             }
         }
 
-        /* 2) 每 50ms 读一次位置：差进容差也算到位（0x9F 丢了时的兜底）。
-              读位置前会清回帧标志，所以放在重发之前 —— 重发后驱动器回的 0x02
-              落到随后的 50ms 间隔里，下一轮的步骤 1) 就能认到，不会被读位置吃掉。 */
-        if(Pick_ReadAxisPosTmo(addr, &pos, PICK_ARRIVE_READ_TMO))
+        /* 2) FAST 模式才读位置：差进容差也算到位（0x9F 丢了时的兜底）。
+              EXACT 模式必须等真正的到位帧，不读位置 —— 读位置前会清回帧标志，
+              正好会把刚到的 0x9F 清掉。
+              读位置放在重发之前 —— 重发后驱动器回的 0x02 落到随后的间隔里，
+              下一轮的步骤 1) 就能认到，不会被读位置吃掉。 */
+        if(mode != PICK_ARRIVE_EXACT)
         {
-            int32_t d = Pick_CposSign(addr) * pos - target;
-            if(d < 0) d = -d;
-            if(d <= tol)
+            if(Pick_ReadAxisPosTmo(addr, &pos, PICK_ARRIVE_READ_TMO))
             {
-                Pick_Diag_PosConfirmCnt++;
-                return PICK_MOVE_OK;
+                /* 回值单位先换算成脉冲，再和 target(脉冲) 比 */
+                int32_t d = Pick_CposSign(addr) * Pick_CposToPul(addr, pos) - target;
+                if(d < 0) d = -d;
+                if(d <= tol)
+                {
+                    Pick_Diag_PosConfirmCnt++;
+                    return PICK_MOVE_OK;
+                }
             }
         }
 
@@ -426,15 +492,14 @@ static void Pick_StepperIssue(uint8_t addr, int32_t target, uint16_t vel, uint8_
  *        也是开源工程不出现本问题的原因（它们上电回零后一直发绝对目标）。
  *        只给**会回到位帧**的轴用（高度轴）；半径轴用 Pick_StepperIssue。
  *
- *        到位确认（2026-11 按实车情况改）：回帧通道是单槽的，0x9F 经常被别的帧
- *        覆盖，但电机其实已经到位。所以交给 Pick_WaitArrivePoll 做 1 秒的并行确认：
- *          · 收到 0x02 前每 50ms 重发绝对目标（命令丢了也能补）；
- *          · 收到 0x02 后每 50ms 读位置，同时继续认 0x9F；
- *          · 到位帧 或 位置差 ≤ 5mm，满足一个即算到位；
- *          · 0xE2(拒收)立即返回，不再空等。
- *        1 秒内确认不了才清堵转 + 降速重发一次，再来一轮同样的确认。
+ *        到位确认交给 Pick_WaitArrivePoll()，模式由 mode 决定：
+ *          · FAST ：0x9F 到位帧 或 位置差 ≤ 容差，谁先满足都算到位；
+ *          · EXACT：只认 0x9F 到位帧（最终下探用）。
+ *        收到 0x02 前每 PICK_ARRIVE_RESEND_MS 重发绝对目标；0xE2(拒收)立即返回。
+ *        一轮确认超时才清堵转 + 降速重发一次，再来一轮同样的确认。
  */
-static uint8_t Pick_StepperMove(uint8_t addr, int32_t target, uint16_t vel, uint8_t acc)
+static uint8_t Pick_StepperMove(uint8_t addr, int32_t target, uint16_t vel,
+                                uint8_t acc, uint8_t mode)
 {
     uint8_t  r;
     uint16_t retryVel = (addr == PICK_MOTOR_Z_ADDR) ? PICK_MOTOR_Z_RETRY_VEL : PICK_MOTOR_R_RETRY_VEL;
@@ -442,25 +507,27 @@ static uint8_t Pick_StepperMove(uint8_t addr, int32_t target, uint16_t vel, uint
 
     Pick_StepperIssue(addr, target, vel, acc);
 
-    /* 第一轮：1 秒内用"重发 + 到位帧 + 位置差"确认 */
-    r = Pick_WaitArrivePoll(addr, target, vel, acc);
+    /* 第一轮：按 mode 确认到位 */
+    r = Pick_WaitArrivePoll(addr, target, vel, acc, mode);
     if(r == PICK_MOVE_OK) return r;
 
     /* 确实没到位/被拒收：清堵转 + 降速重发一次（绝对目标重发安全，减小顶限位冲击） */
     Pick_MotorRecover(addr);
     Pick_StepperIssue(addr, target, retryVel, retryAcc);
 
-    /* 第二轮同样确认 1 秒 */
-    return Pick_WaitArrivePoll(addr, target, retryVel, retryAcc);
+    /* 第二轮同样按 mode 确认 */
+    return Pick_WaitArrivePoll(addr, target, retryVel, retryAcc, mode);
 }
 
 /**
  * @brief 高度电机移动到指定 mm（绝对位置模式）
+ * @param mm   目标高度(mm)
+ * @param mode 到位模式：PICK_ARRIVE_FAST（窗口可提前走）/ PICK_ARRIVE_EXACT（只认 0x9F）
  * @note  绝对坐标以 Pick_Axis_Init() 建立的零点为准（上电时人工放好的 0 位）。
  *        失败时会读回 S_CPOS 修正跟踪值；即使读不回，下一次绝对目标仍然正确，
  *        因为目标不依赖"上次走了多少"。
  */
-static uint8_t Pick_MotorZ_MoveToMM(float mm)
+static uint8_t Pick_MotorZ_MoveToMM(float mm, uint8_t mode)
 {
     int32_t target, cpos;
     uint8_t r;
@@ -469,7 +536,7 @@ static uint8_t Pick_MotorZ_MoveToMM(float mm)
     if(mm > PICK_MOTOR_Z_MAX_MM) mm = PICK_MOTOR_Z_MAX_MM;
     target = (int32_t)(mm * PICK_MOTOR_Z_MM_PUL + 0.5f);
 
-    r = Pick_StepperMove(PICK_MOTOR_Z_ADDR, target, PICK_MOTOR_Z_VEL, PICK_MOTOR_Z_ACC);
+    r = Pick_StepperMove(PICK_MOTOR_Z_ADDR, target, PICK_MOTOR_Z_VEL, PICK_MOTOR_Z_ACC, mode);
 
     if(r == PICK_MOVE_OK)
     {
@@ -516,8 +583,10 @@ static void Pick_MotorR_MoveToMM_Issue(float mm)
  * @param liftFirst 1=门字形(先到安全高度)；0=直接到位
  * @note  JumpTo 与 MoveTo 的唯一差别就是 liftFirst，共用一份代码，避免两边改漏。
  *        两轴都走**绝对位置(raF=1)**，所以轨迹里不需要再做"走了多少"的增量运算。
- *        安全高度那一步失败时**直接中止本次动作**：臂的高度未知时继续转向/走半径
- *        比停下更危险。旧代码不检查这一步的结果，是"顶着限位还要继续做动作"的来源。
+ *        **到位模式分两种**（见 PICK_ARRIVE_*）：
+ *          抬到安全高度 → FAST：0x9F 或 1cm 窗口，差一点就开始转向；
+ *          最终下探     → EXACT：只认 0x9F，必须真正到位。
+ *        （安全高度那一步失败目前不中止，只把结果丢弃。）
  */
 static void Pick_Traj_Move(float servoZ, float motorZ_mm, float motorR_mm, uint8_t liftFirst)
 {
@@ -531,17 +600,17 @@ static void Pick_Traj_Move(float servoZ, float motorZ_mm, float motorR_mm, uint8
 
     zMoved = (fabsf(Servo_GetAngle(SERVO_Z) - servoZ) >= 0.5f);  /* 舵机是否真的需要转 */
     rMoved = (rTarget != pick_motorRPos);                        /* 半径是否真的需要走 */
-    /* 半径和旋转角都在目标：不需要门字形，直接改高度到目标高度 */
+    /* 半径和旋转角都在目标：不需要门字形，直接改高度到目标高度（最终位，要精确） */
     if(!rMoved && !zMoved)
     {
-        (void)Pick_MotorZ_MoveToMM(motorZ_mm);
+        (void)Pick_MotorZ_MoveToMM(motorZ_mm, PICK_ARRIVE_EXACT);
         return;
     }
 
-    /* 1. 门字形：先到安全高度；失败不中止*/
+    /* 1. 门字形：先到安全高度；这一步允许用窗口提前走（失败不中止） */
     if(liftFirst)
     {
-        Pick_MotorZ_MoveToMM(PICK_SAFE_HEIGHT_MM);
+        Pick_MotorZ_MoveToMM(PICK_SAFE_HEIGHT_MM, PICK_ARRIVE_FAST);
     }
 
     /* 2. 并行：半径命令只发不等回执，舵机平滑耗时盖住半径运动。
@@ -554,8 +623,8 @@ static void Pick_Traj_Move(float servoZ, float motorZ_mm, float motorR_mm, uint8
         HAL_Delay(SERVO_Z_SETTLE_MS);              /* 舵机物理到位裕量 */
     }
 
-    /* 3. 舵机运行结束后，再运行到输入的目标高度 */
-    (void)Pick_MotorZ_MoveToMM(motorZ_mm);
+    /* 3. 舵机运行结束后，再运行到输入的目标高度（最终位，必须精确到位） */
+    (void)Pick_MotorZ_MoveToMM(motorZ_mm, PICK_ARRIVE_EXACT);
 }
 
 /**
@@ -677,9 +746,9 @@ void Pick_Test_MotorZ(void)
     Pick_Axis_EnsureInit();            /* 以当前（上电前的 0 位）建立两轴零点 */
     for(;;)
     {
-        (void)Pick_MotorZ_MoveToMM(30.0f);   /* → 30mm，阻塞到高度电机到位返回标志 */
+        (void)Pick_MotorZ_MoveToMM(30.0f, PICK_ARRIVE_EXACT);  /* → 30mm，等真正的 0x9F */
         HAL_Delay(3000);                     /* 停 3 秒：量尺寸 / 看方向 */
-        (void)Pick_MotorZ_MoveToMM(0.0f);    /* → 回 0mm(上电位置) */
+        (void)Pick_MotorZ_MoveToMM(0.0f, PICK_ARRIVE_EXACT);   /* → 回 0mm(上电位置) */
         HAL_Delay(3000);
     }
 }

@@ -142,6 +142,7 @@ void TaskProc(void)
 //====================================回到原点=================================== 
         case GoBack:
             AGV_Position_GoBack();
+            
             TaskCode = IDLE;
             break;
         case IDLE:

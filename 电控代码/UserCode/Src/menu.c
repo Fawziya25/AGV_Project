@@ -121,6 +121,31 @@ uint8_t Menu_SwitchZone(void)
 }
 
 /**
+ * @brief 结束页：显示抓取 / 放置的正确次数
+ * @param pick_ok  抓取正确次数
+ * @param place_ok 放置正确次数
+ * @note  两行 16x16 字体：
+ *            第 1 行  "Pick OK : n"
+ *            第 2 行  "Place OK: n"
+ *        中文字模只有演示用的十几个字，显示不了任意汉字，所以标签用英文。
+ *        进函数 Dbg_Suspend() 保屏，**不 Resume** —— 这是最后一屏；
+ *        需要让调试服务恢复刷屏，调用方自己 Dbg_Resume()。
+ */
+void Menu_end(uint8_t pick_ok, uint8_t place_ok)
+{
+    char buf[20];
+
+    Dbg_Suspend();                       /* 这一屏归结束页，别让调试服务刷掉 */
+
+    OLED_Clear();
+    sprintf(buf, "Pick OK : %u", (unsigned)pick_ok);
+    OLED_ShowString(0, 0, (uint8_t *)buf, 16, 1);
+    sprintf(buf, "Place OK: %u", (unsigned)place_ok);
+    OLED_ShowString(0, 16, (uint8_t *)buf, 16, 1);
+    OLED_Refresh();
+}
+
+/**
  * @brief 阻塞等待启动：C6 短按切换启停区，A8 短按确认并返回
  * @note  OLED 依赖 AGV_Init() 中 AGV_OLED_ShowReady() 已初始化
  *        进入时 Dbg_Suspend()：AGV_Init() 里 Dbg_Init() 早于本函数，TIM7 已经

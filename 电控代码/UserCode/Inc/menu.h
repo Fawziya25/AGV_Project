@@ -15,4 +15,11 @@ void Menu_Init(void);
    Radar_SetZone() 失败时不改小车坐标（避免“雷达在区A、车按区B算”）。 */
 uint8_t Menu_SwitchZone(void);
 
+/* 结束页：显示抓取 / 放置的正确次数（任务跑完后调用）。
+   第 1 行 "Pick OK : n"，第 2 行 "Place OK: n"。
+   进函数先 Dbg_Suspend()，**不自动 Resume** —— 这是最后一屏，调用方
+   （Test_Switch / 正式流程收尾）之后通常就停住了；要交还屏幕自己调 Dbg_Resume()。
+   注：OLED 驱动里的中文字模只有演示用的十几个，显示不了任意汉字，所以用英文标签。 */
+void Menu_end(uint8_t pick_ok, uint8_t place_ok);
+
 #endif

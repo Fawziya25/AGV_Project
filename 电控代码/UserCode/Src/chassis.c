@@ -109,7 +109,9 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
 	HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_WaitArrive(EMM_V5_ARRIVE_TMO_MS);		// 等电机到位回帧(0xFD 0x9F)，超时兜底不卡死
+	/* 只认四个轮子(地址1~4)的到位帧，任意一个报到就算到位；地址5/6(机械臂)的
+	   0x9F 不会被误当成底盘到位。超时兜底不卡死。 */
+	Emm_V5_WaitArriveMask(0x0FU, EMM_V5_ARRIVE_TMO_MS);
 
 	HAL_Delay(200);
 
@@ -150,7 +152,9 @@ void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发
 	HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_WaitArrive(EMM_V5_ARRIVE_TMO_MS);		// 等电机到位回帧(0xFD 0x9F)，超时兜底不卡死
+	/* 只认四个轮子(地址1~4)的到位帧，任意一个报到就算到位；地址5/6(机械臂)的
+	   0x9F 不会被误当成底盘到位。超时兜底不卡死。 */
+	Emm_V5_WaitArriveMask(0x0FU, EMM_V5_ARRIVE_TMO_MS);
 
 	HAL_Delay(200);
 

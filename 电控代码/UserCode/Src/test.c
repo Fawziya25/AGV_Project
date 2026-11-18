@@ -637,22 +637,22 @@ static void Test_Pick_Task(void)
     // HAL_Delay(500);
     // Pick_Gripper_Release();
     // Pick_JumpTo POS_RAW_C;
-    //Pick_Correct();
+    Pick_Correct();
    //Pick_JumpTo POS_RAW_C;
    
     //Pick_RAW();
     //Pick_RAW_PLUS();
-    //Pick_RAW_PLUS_FAST();
+    Pick_RAW_PLUS_FAST();
     // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
     //         // Place_Correct_Low();
     //         // Place_ROUGH();
-    Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    //Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
     //Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
     //Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
     //Place_Correct_Angle(); 
-    Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
-    Place_ROUGH();
-    Pick_ROUGH();
+    //Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
+    //Place_ROUGH();
+    //Pick_ROUGH();
     Pick_JumpTo POS_START;
 
 
@@ -989,7 +989,7 @@ void Test_Switch(void)
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正
         case 3:  Test_Turn();        break;  //转向PID：左转90/右转90往复，增益在 yawPIDcontroller.h 的 KP/KI/KD
-        case 4:  break;//不用
+        case 4:  Menu_end(12U, 12U);break;//不用
         case 5:  Test_Pick_POS_Test();  break; // 无视觉的夹爪位置调试
         case 6:  Test_Pick_Task();    break;//
         case 7:  Test_Camera();      break;  //用到视觉的调试
@@ -999,7 +999,10 @@ void Test_Switch(void)
         default: break;                      /* 号还没写实现的：初始化完就停住 */
     }
 
-    for(;;) { } 
+    /* 结束页：抓取 / 放置正确次数。12 是占位值，接真实计数后换成变量即可。 */
+    
+
+    for(;;) { }
 }
 
 #endif  /* TEST_MODE == 0 */

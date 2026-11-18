@@ -97,8 +97,12 @@ void Emm_V5_Synchronous_motion(uint8_t addr);
 #define EMM_V5_ACK_TMO_MS       200U
 // 清CAN回帧标志：发命令前调用，使随后的等待只认本次动作新到的帧
 void Emm_V5_ClearRxFrame(void);
-// 等电机到位回帧(0xFD 0x9F)，逐帧消费；1=到位, 0=超时
+// 等电机到位回帧(0xFD 0x9F)，逐帧消费；1=到位, 0=超时（任意地址）
 uint8_t Emm_V5_WaitArrive(uint32_t tmo_ms);
+/* 同上，但只接受 src_mask 指定的源地址：bit(addr-1)=1 表示接受该地址。
+   地址取自回帧扩展 ID 的高字节（与 can_SendCmd 的 ExtId=(addr<<8)|packNum 对应）。
+   例：底盘四个轮子(地址1~4)任意一个到位 → 0x0F。 */
+uint8_t Emm_V5_WaitArriveMask(uint8_t src_mask, uint32_t tmo_ms);
 // 等任意CAN回帧(确认命令被接收)；1=收到, 0=超时
 uint8_t Emm_V5_WaitRxFrame(uint32_t tmo_ms);
 /**********************************************************
