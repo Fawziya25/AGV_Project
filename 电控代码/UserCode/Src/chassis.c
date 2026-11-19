@@ -128,7 +128,8 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
  * 1：向左移动
  * @note  横移全靠 45° 辊子侧滑传力，效率和重复性都远低于直行：同一档速度下它先打滑，
  *        而且滑多少每次都不太一样（表现为距离偏短 + 车体斜滑）。所以横移有**独立的速度上限**
- *        Vel_Translate(80RPM)，直行/倒车仍用 Vel(350RPM)。要改横移快慢只改那个宏。
+ *        Vel_Translate(80RPM) 和**独立的加减速** AGV_ACC_TRANSLATE(50)；
+ *        直行/倒车仍用 Vel(350RPM) / AGV_ACC_POS(150)。要改横移快慢/软硬只改那两个宏。
  */
 void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 {
@@ -145,16 +146,16 @@ void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 
 	Yaw_MovingOffsetStart();	/* 平移本不该改航向：期间读数变化就是航向漂移，下次转弯消费 */
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
-	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(1, Wheel1PositiveDir^dir, vel, AGV_ACC_TRANSLATE, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_Pos_Control(4, Wheel2PositiveDir^dir, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(4, Wheel2PositiveDir^dir, vel, AGV_ACC_TRANSLATE, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_Pos_Control(2, Wheel3PositiveDir^dir^1, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(2, Wheel3PositiveDir^dir^1, vel, AGV_ACC_TRANSLATE, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
-	Emm_V5_Pos_Control(3, Wheel4PositiveDir^dir^1, vel, AGV_ACC_POS, p, 2, 1); // 多机同步标志位置1
+	Emm_V5_Pos_Control(3, Wheel4PositiveDir^dir^1, vel, AGV_ACC_TRANSLATE, p, 2, 1); // 多机同步标志位置1
 		HAL_Delay(1);																 // 每条命令后面延时10毫秒，防止粘包，CAN通讯速率调到1MHz，可以缩短至几十微秒即可
 
 	Emm_V5_Synchronous_motion(0); 								 // 广播地址0触发

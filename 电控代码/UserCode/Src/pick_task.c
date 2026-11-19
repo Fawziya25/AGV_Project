@@ -619,7 +619,7 @@ void Pick_RAW_PLUS_FAST(void)
    固定角度"这种机械偏角；实测每轮都差同一个方向同一个量，所以在这里补一次开环补角。
    正负号与 AGV_SetYaw 的目标角同向：实车越补越歪就把 +0.5f 改成 -0.5f。
    改成 0.0f 即关闭（AGV_TrimYaw 内部会直接返回，连 CAN 都不发）。 */
-#define PLACE_CORRECT_LOW_YAW_FF_DEG   (0.5f)
+#define PLACE_CORRECT_LOW_YAW_FF_DEG   (0.0f)
 
 /**
  * @brief 粗加工区放置前的视觉对正【低位】：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct 闭环 → 固定补角 → 收爪

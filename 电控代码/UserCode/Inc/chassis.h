@@ -29,8 +29,9 @@
 
 /* ---------------- 行驶加速度(0~255，对应 Emm_V5 的 acc 字段) ----------------
    数值越大，起步/停车的加减速越猛；0 = 不插加减速曲线，直接给目标转速。
-   两种模式分开：位置模式(直行/平移)和速度模式(原地转)的负载不一样，各调各的。 */
-#define AGV_ACC_POS   150           // 位置模式加速度(AGV_Position_GoStraight / Translate)
+   三种动作分开：直行、横移、原地转的负载和打滑特性都不一样，各调各的。 */
+#define AGV_ACC_POS   150           // 位置模式加速度(直行 AGV_Position_GoStraight)
+#define AGV_ACC_TRANSLATE 50         // 横移专用加速度：辊子靠侧滑传力，起步/收尾越猛越容易滑
 #define AGV_ACC_VEL   100            // 速度模式加速度(AGV_Position_Rotate)
 
 // #define QRCode 360, 1110           // 二维码区坐标
