@@ -67,9 +67,11 @@
 extern uint16_t AGV_Position_X;
 extern uint16_t AGV_Position_Y;
 
-#define Raw_Approaching_L 80 // 原料区接近距离
-#define Rough_Approaching_L 60 // 粗加工区接近距离
-#define Temp_Approaching_L 60 // 暂存区接近距离
+#define Raw_Offset_L 0U // 原料区偏移距离 >0 向左偏移，<0 向右偏移，单位mm
+
+#define Raw_Approaching_L 70 // 原料区接近距离
+#define Rough_Approaching_L 50 // 粗加工区接近距离
+#define Temp_Approaching_L 50 // 暂存区接近距离
 
 
 /* 按启停区 1/2 设定小车初始坐标与车头朝向（其它值按区2处理）。

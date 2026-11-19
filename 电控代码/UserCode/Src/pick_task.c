@@ -619,7 +619,7 @@ void Pick_RAW_PLUS_FAST(void)
    固定角度"这种机械偏角；实测每轮都差同一个方向同一个量，所以在这里补一次开环补角。
    正负号与 AGV_SetYaw 的目标角同向：实车越补越歪就把 +0.5f 改成 -0.5f。
    改成 0.0f 即关闭（AGV_TrimYaw 内部会直接返回，连 CAN 都不发）。 */
-#define PLACE_CORRECT_LOW_YAW_FF_DEG   (0.0f)
+#define PLACE_CORRECT_LOW_YAW_FF_DEG   (0.2f)
 
 /**
  * @brief 粗加工区放置前的视觉对正【低位】：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct 闭环 → 固定补角 → 收爪
@@ -651,7 +651,6 @@ void Place_Correct_Low(void)
     }
     /* 位置闭环只修 dx/dy，修不了"车体相对圆环固定差一个角"，所以再补一次固定前馈。
        相机这次没识别成功(上面没进 if)也照补：偏角是机械常数，跟识别成功与否无关。 */
-    AGV_TrimYaw(PLACE_CORRECT_LOW_YAW_FF_DEG);
     /* 这里不要清行进偏差：这 0.5° 是**有意**加的偏置，不是误差；
        而到达这里之前直行跑偏的那部分该留到下次转弯补掉。 */
     Pick_Gripper_Release();             /* 修正完了，下去放之前收成 release 位 */
@@ -705,18 +704,33 @@ void Place_Correct_High(void)
  *
  *        1) 沿车头方向挪 PLACE_CORRECT_ANGLE_SHIFT_MM(7cm)：三个圆环在视野里
  *           排得更开，0x06 报的偏角更准；那里不是放料位，所以量完就退回来。
- *        2) 角度闭环：反复 0x06 → AGV_SetYaw(当前 + SGN*GAIN*err)，直到 |err|
- *           进 PLACE_CORRECT_ANGLE_DB 或迭代到 ANGLE_ITERS；0x06 超时直接跳出
+ *        2) 角度闭环：反复 0x06 → 按 SGN*GAIN*err 转，直到 |err| 进
+ *           PLACE_CORRECT_ANGLE_DB 或迭代到 ANGLE_ITERS；0x06 超时直接跳出
  *           （不拿旧值闭环）。
  *        3) 把对正后的**实际**航向记成基准 a1 —— 不是把上一轮算出来的目标值当
  *           a1，那样相机噪声会一点点累积。
  *        4) 退回原位（方向取反），再把航向复位到 a1。
  *
  *        ⚠ 角度是**增量**：目标航向 = 当前航向 + SGN*GAIN*cam_angle。
+ *
+ *        ── 与"记录 + 修正"体系的关系（2026-11-19）────────────────────
+ *        本函数做的是**有意**改航向（视觉对正），所以：
+ *          · 转角一律走 AGV_TrimYaw()，不走 AGV_SetYaw()。两者都是转到某个角，
+ *            但几度的对正量最容易踩 AGV_SetYaw 的两个坑：AGV_SetOmega() 的
+ *            (uint16_t) 截断会让 |ω|<0.98°/s 直接变成 0、且 AGV_SetYaw 没有超时。
+ *            AGV_TrimYaw() 自带最低角速度和 1.5s 上限，正好是给这种小角度用的。
+ *            单次最多转约 22°（15°/s × 1.5s），更大会超时——但外面有 5 次迭代，
+ *            下一轮会重新量、接着修。
+ *          · 不写 yawLastResid / movingDelta —— 对正是"目标"，不是"误差"。
+ *          · 对正**成功**后才清行进偏差记录（Yaw_ClearMovingDelta）：相机刚给了
+ *            绝对角度，之前记下的漂移已经作废，不清会到下次转弯里再补一遍；
+ *            相机**没给到角度**（0x06 超时）时不能清，那部分漂移还没被修掉。
+ *          · yawLastResid 不动：停位残差是转弯机械属性，与对正无关。
  */
 void Place_Correct_Angle(void)
 {
-    float a1;
+    float   a1;
+    uint8_t aligned = 0U;   /* 相机确认"已对正"才置 1：决定结尾要不要清行进偏差 */
 
     /* ---- 1) 挪开 7cm，站到角度看得准的位置 ---- */
     AGV_Position_GoStraight(PLACE_CORRECT_ANGLE_SHIFT_MM, Vel, PLACE_CORRECT_ANGLE_SHIFT_DIR);
@@ -727,13 +741,18 @@ void Place_Correct_Angle(void)
         float err, abs_err;
 
         HAL_Delay(PLACE_CORRECT_ANGLE_SETTLE_MS);   /* 车停稳、相机出新图 */
-        if(!Cam_SwitchTo(06)) break;                /* 超时：不拿旧值闭环 */
+        if(!Cam_SwitchTo(06)) break;                /* 超时：不拿旧值闭环，aligned 保持 0 */
 
         err     = PLACE_CORRECT_ANGLE_SGN * (float)cam_angle;
         abs_err = (err < 0.0f) ? -err : err;
-        if(abs_err < PLACE_CORRECT_ANGLE_DB) break; /* 已经对正，不用再动 */
+        if(abs_err < PLACE_CORRECT_ANGLE_DB)
+        {
+            aligned = 1U;                           /* 这一帧就是"已对正"的证据 */
+            break;                                  /* 已经对正，不用再动 */
+        }
 
-        AGV_SetYaw(HWT101_GetYaw() + PLACE_CORRECT_ANGLE_GAIN * err);
+        /* 相对转角修一次：AGV_TrimYaw 内部按误差符号给最低角速度，不会"转不动" */
+        AGV_TrimYaw(PLACE_CORRECT_ANGLE_GAIN * err);
     }
 
     /* ---- 3) 把对正后的实际航向记成基准 a1 ---- */
@@ -742,10 +761,14 @@ void Place_Correct_Angle(void)
     /* ---- 4) 退回原放料位，并把航向复位到 a1 ---- */
     AGV_Position_GoStraight(PLACE_CORRECT_ANGLE_SHIFT_MM, Vel,
                             (uint8_t)(PLACE_CORRECT_ANGLE_SHIFT_DIR ^ 1U));
-    AGV_SetYaw(a1);
-    /* 相机刚把航向绝对对正过：对正之前记下的行进偏差已经作废，清掉，
-       否则会到下次转弯里再补一遍。停位残差(yawLastResid)不动，那是机械属性。 */
-    Yaw_ClearMovingDelta();
+    /* 退回这段的漂移不用单独记：这里直接按 a1 - 当前读数 转回去，一并修掉 */
+    AGV_TrimYaw(a1 - HWT101_GetYaw());
+
+    /* ---- 5) 只有真对正过，才把已记录的行进偏差作废 ---- */
+    if(aligned)
+    {
+        Yaw_ClearMovingDelta();
+    }
 }
 
 /**

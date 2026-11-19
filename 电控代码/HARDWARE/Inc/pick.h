@@ -35,9 +35,9 @@
 #define POS_RAW_C_APPROACH    (167.0f + POS_CORR_ANG, 50.0f + POS_CORR_Z,  157.0f + POS_CORR_R )   // POS_RAW_C 上方 30mm
 
 //====================== 圆环放置位置 =====================
-#define POS_1                  (225.0f + POS_CORR_ANG, 165.5f + POS_CORR_Z,   74.0f + POS_CORR_R )   // 圆环左边 (XYZ均 -1.5)
+#define POS_1                  (225.1f + POS_CORR_ANG, 165.5f + POS_CORR_Z,   74.0f + POS_CORR_R )   // 圆环左边 (XYZ均 -1.5)
 #define POS_2                  (180.0f + POS_CORR_ANG, 165.5f + POS_CORR_Z,   20.5f + POS_CORR_R )   // 圆环中间 (XYZ均 -1.5)
-#define POS_3                  (141.1f + POS_CORR_ANG, 165.5f + POS_CORR_Z,   86.2f + POS_CORR_R )   // 圆环右边 (XYZ均 -1.5)
+#define POS_3                  (141.2f + POS_CORR_ANG, 165.5f + POS_CORR_Z,   86.5f + POS_CORR_R )   // 圆环右边 (XYZ均 -1.5)
 #define POS_1_HIGE             (220.5f + POS_CORR_ANG, 106.5f + POS_CORR_Z,   74.3f + POS_CORR_R )   // 圆环物块左边 (XYZ均 -1.5)
 #define POS_2_HIGE             (180.0f + POS_CORR_ANG, 106.5f + POS_CORR_Z,   23.5f + POS_CORR_R )   // 圆环物块中间 (XYZ均 -1.5)
 #define POS_3_HIGE             (140.9f + POS_CORR_ANG, 106.5f + POS_CORR_Z,   87.0f + POS_CORR_R )   // 圆环物块右边 (XYZ均 -1.5)
@@ -47,7 +47,7 @@
 
 //====================== 夹爪舵机角度 =====================
 #define PICK_OBSERVE            19.5f   /* 张开观察（让相机看得见，最宽） */
-#define PICK_GRAB              105.0f   /* 抓住物料 */
+#define PICK_GRAB              109.0f   /* 抓住物料 */
 #define PICK_RELEASE            75.0f   /* 放开物料（放到圆环/车上时用） */
 /* 原料区下探抓料时的**专用张角**：和 PICK_RELEASE 解耦。
    原因：以前原料区下探也是直接用 PICK_RELEASE，调"下探别蹭料"就会把

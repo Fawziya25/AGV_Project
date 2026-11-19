@@ -57,7 +57,7 @@
    ⚠ 视觉/电控只能有一边开这个补偿：两边都开 = 净偏 90px（40mm）。 */
 #define CAM_MOUNT_CORR_ENABLE  1       /* 总开关：0=回到"纯画面中心"零点(两套一起失效) */
 #define CAM_MOUNT_CORR_X        0.0f    /* 放置侧横向偏置(px)，一般不动 */
-#define CAM_MOUNT_CORR_Y        25.0f   /* 放置侧纵向偏置(px)：相机中心后移20mm↔45px */
+#define CAM_MOUNT_CORR_Y        29.0f   /* 放置侧纵向偏置(px)：相机中心后移20mm↔45px */
 
 /* 取料侧（Pick_Correct 专用）：与上面那套完全独立，实车上单独标定。
    只改这两个数，不影响放置侧；改完跑一次 Pick_Correct，看屏上 x/y≈0 即对准。 */

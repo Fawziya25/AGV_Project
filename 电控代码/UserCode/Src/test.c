@@ -592,23 +592,24 @@ static void Test_Pick_Task(void)
 {
     /* 原料区抓取 */
 
-    Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
-    Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
-    HWT101_Init(&huart5); /* 初始化HWT101 */
-    QRcode_Task(); 
-    Pick_Correct();
-    Pick_RAW_PLUS_FAST();
+    // Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
+    // Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
+    // HWT101_Init(&huart5); /* 初始化HWT101 */
+    // QRcode_Task(); 
+    // Pick_Correct();
+    // Pick_RAW_PLUS_FAST();
 
      /* 粗加工区抓取与放置 */
 
-    // Cam_Init();
-    // Pick_Init();
-    // HWT101_Init(&huart5); /* 初始化HWT101 */
-    // QRcode_Task();
-    // Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
-    // Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
-    // Place_ROUGH();
-    // Pick_ROUGH();
+    Cam_Init();
+    Pick_Init();
+    HWT101_Init(&huart5); /* 初始化HWT101 */
+    QRcode_Task();
+    Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
+    // Place_Correct_Angle();
+    Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
+    Place_ROUGH();
+    Pick_ROUGH();
 
 //     /* 其它测试 */
 // //     Cam_Init();
