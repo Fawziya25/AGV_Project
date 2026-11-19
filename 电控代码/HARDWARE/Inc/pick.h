@@ -2,6 +2,7 @@
 #define __PICK_H
 
 //====================== 角度z     高度z    半径r =====================
+
 /* ---- 位置全局修正 ----
    三个轴各一个修正值，下面**所有 POS_* 位置宏**都在原名义值上加上对应项：
        角度 + POS_CORR_ANG、高度 + POS_CORR_Z、半径 + POS_CORR_R。
@@ -12,7 +13,7 @@
 #define POS_CORR_Z              2.0f   /* 高度修正(mm)：0 位在上，数值越大臂越低 */
 #define POS_CORR_R              0.0f   /* 半径修正(mm) */
 
-#define POS_START              ( 71.0f + POS_CORR_ANG,  8.0f + POS_CORR_Z,    5.0f + POS_CORR_R )   // 车运行前的位置
+#define POS_START              ( 45.0f + POS_CORR_ANG,  8.0f + POS_CORR_Z,   100.0f + POS_CORR_R )   // 车运行前的位置
 #define POS_RUN                ( 90.0f + POS_CORR_ANG, 63.0f + POS_CORR_Z,   10.0f + POS_CORR_R )   // 车移动时候位置
 
 //====================== 车上放置位置 =====================
@@ -45,9 +46,16 @@
 #define POS_OBSERVE_RING_HIGH  (180.0f + POS_CORR_ANG,  56.5f + POS_CORR_Z,   16.5f + POS_CORR_R )   // 观察三个圆环 粗修正的时候对角度修正的时候使用
 
 //====================== 夹爪舵机角度 =====================
-#define PICK_OBSERVE            19.5f   /* 张开观察 */
+#define PICK_OBSERVE            19.5f   /* 张开观察（让相机看得见，最宽） */
 #define PICK_GRAB              105.0f   /* 抓住物料 */
-#define PICK_RELEASE            75.0f   /* 放开物料 */
+#define PICK_RELEASE            75.0f   /* 放开物料（放到圆环/车上时用） */
+/* 原料区下探抓料时的**专用张角**：和 PICK_RELEASE 解耦。
+   原因：以前原料区下探也是直接用 PICK_RELEASE，调"下探别蹭料"就会把
+   "往圆环放料"的角度一起改掉，两边互相牵制。
+   角度含义同其它夹爪量：**数值越小张得越开**（0°最开、105°闭合抓料）。
+   初值 = 原来的 PICK_RELEASE(72)，所以不调这个宏时行为与改动前完全一致；
+   原料区下探蹭到料就往下调（张开一点），夹不稳就往上调。 */
+#define PICK_RAW_OPEN           65.0f
 
 
 // 基础值修正
@@ -142,6 +150,9 @@ void Pick_Test_Transfer(void);
 void Pick_Gripper_Grab(void);
 void Pick_Gripper_Release(void);
 void Pick_Gripper_Observe(void);
+/* 原料区下探抓料专用的张开角（PICK_RAW_OPEN），与 PICK_RELEASE 解耦。
+   在 Pick_JumpTo POS_RAW_x 之前调；已经是这个角时 Servo_SetAngleSmooth 直接返回，不耗时。 */
+void Pick_Gripper_RawOpen(void);
 
 void Pick_Gripper_Quick_Grab(void);
 void Pick_Gripper_Quick_Release(void);

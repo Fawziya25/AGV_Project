@@ -17,9 +17,15 @@
 #define Origin_X 165                 // 初始X坐标
 #define Origin_Y 165                 // 初始Y坐标
 
-#define Vel 350                    // 默认行驶速度(RPM)
+#define Vel 350                    // 默认行驶速度(RPM) —— 直行/倒车用
 
-#define Run_With_Radar 1 // 是否避障运行，1 = 避障，0 = 不避障
+/* 横移专用速度(RPM)：麦轮横移靠 45° 辊子侧滑传力，效率和重复性都远低于直行，
+   滑差随速度上升得很快 —— 直行那档 350RPM(≈1.37m/s) 拿来横移必然"偏短 + 随机斜滑"。
+   降到 80RPM(≈0.31m/s) 是明显更稳的一档；代价是 500mm 横移从 ~0.4s 变成 ~1.6s。
+   ⚠ AGV_Position_Translate() 内部会把它当上限：传更大的会被压到这里。 */
+#define Vel_Translate 80
+
+#define Run_With_Radar 0 // 是否避障运行，1 = 避障，0 = 不避障
 
 /* ---------------- 行驶加速度(0~255，对应 Emm_V5 的 acc 字段) ----------------
    数值越大，起步/停车的加减速越猛；0 = 不插加减速曲线，直接给目标转速。
@@ -47,12 +53,12 @@
    DEPART_GRID 停车位对应的拐点下标（Points_X/Points_Y 的索引），即 Depart 先对齐到哪一格；
                ⚠ 必须与 radar_config.h 的 RADAR_ZONEn_START_GRID 保持一致（当前 1 区=4、2 区=0），
                  将来改出发点方格时两边一起改。 */
-#define AGV_ZONE1_ORIGIN_X       150U     /* 区1：左下角停车位 */
-#define AGV_ZONE1_ORIGIN_Y       150U
+#define AGV_ZONE1_ORIGIN_X       148U     /* 区1：左下角停车位 */
+#define AGV_ZONE1_ORIGIN_Y       145U
 #define AGV_ZONE1_ORIGIN_DIR     3U       /* 朝 Y- */
 #define AGV_ZONE1_DEPART_GRID    4U       /* Points[4] = (310, 310) 左下角 */
-#define AGV_ZONE2_ORIGIN_X       150U     /* 区2：左上角停车位（上电默认，见 RADAR_ZONE_DEFAULT） */
-#define AGV_ZONE2_ORIGIN_Y       2250U
+#define AGV_ZONE2_ORIGIN_X       148U     /* 区2：左上角停车位（上电默认，见 RADAR_ZONE_DEFAULT） */
+#define AGV_ZONE2_ORIGIN_Y       2245U
 #define AGV_ZONE2_ORIGIN_DIR     3U       /* 朝 Y- */
 #define AGV_ZONE2_DEPART_GRID    0U       /* Points[0] = (310, 2090) 左上角 */
 

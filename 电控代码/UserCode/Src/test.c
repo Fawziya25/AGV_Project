@@ -269,8 +269,10 @@ void Dbg_ShowScreen(uint8_t paused)
     sprintf(buf, "C:%02X F:%d", cam_mode, cam_flag);
     OLED_ShowString(0, 0, (uint8_t *)buf, 16, 0);
 
-    /* 显示补偿后的偏差：与 AGV_Correct() 闭环同源(AGV_Correct_ApplyMountCorr)，
-       修正完成时本行 x/y≈0；显示原始值的话对准时 y 恒为 -45，会被误判成没修完 */
+    /* 显示补偿后的偏差：与闭环同源(AGV_Correct_ApplyMountCorr)，用的是**当前闭环
+       正在用的那套**（取料侧 Pick_Correct / 放置侧 Place_Correct_* 两套独立偏置，
+       见 positionPIDcontroller.c 顶部）。修正完成时本行 x/y≈0；显示原始值的话
+       对准时 y 恒为负的偏置量，会被误判成没修完。 */
     int16_t cdx = dx, cdy = dy;
     AGV_Correct_ApplyMountCorr(&cdx, &cdy);
     sprintf(buf, "x:%d y:%d", cdx, cdy);
@@ -590,12 +592,12 @@ static void Test_Pick_Task(void)
 {
     /* 原料区抓取 */
 
-    // Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
-    // Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
-    // HWT101_Init(&huart5); /* 初始化HWT101 */
-    // QRcode_Task(); 
-    // Pick_Correct();
-    // Pick_RAW_PLUS(); 
+    Cam_Init();           /* 0x02 要它：等相机启动，5秒超时，成功后屏上显示参数 */
+    Pick_Init();          /* 机械臂上电+收臂到运输位(内部 Pick_JumpTo POS_START) */           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
+    HWT101_Init(&huart5); /* 初始化HWT101 */
+    QRcode_Task(); 
+    Pick_Correct();
+    Pick_RAW_PLUS_FAST();
 
      /* 粗加工区抓取与放置 */
 
@@ -608,41 +610,41 @@ static void Test_Pick_Task(void)
     // Place_ROUGH();
     // Pick_ROUGH();
 
-    /* 其它测试 */
-    Cam_Init();
-    Pick_Init();
-    HWT101_Init(&huart5); /* 初始化HWT101 */
-    QRcode_Task(); 
-    //Pick_JumpTo POS_2;
-    //Place_Correct_Low();
-    //Place_Correct_Low(); 
-    //Place_Correct_Low(); 
-    //
-    // HAL_Delay(500);
-    // Pick_Gripper_Release();
-    //  Pick_Gripper_Grab();
-    // Pick_JumpTo POS_1;
-    // Pick_Gripper_Release();
-    // Pick_JumpTo POS_RUN;
-    // Pick_JumpTo POS_CAR;
-    // Pick_Gripper_Grab();
-    // HAL_Delay(500);
-    // Pick_Gripper_Release();
-    // Pick_JumpTo POS_RAW_B;
-    // Pick_Gripper_Grab();
-    // HAL_Delay(500);
-    // Pick_Gripper_Release();
-    // Pick_JumpTo POS_RAW_A;
-    // Pick_Gripper_Grab();
-    // HAL_Delay(500);
-    // Pick_Gripper_Release();
-    // Pick_JumpTo POS_RAW_C;
-    Pick_Correct();
-   //Pick_JumpTo POS_RAW_C;
+//     /* 其它测试 */
+// //     Cam_Init();
+// //     Pick_Init();
+// //     HWT101_Init(&huart5); /* 初始化HWT101 */
+// //     QRcode_Task(); 
+// //     //Pick_JumpTo POS_2;
+// //     //Place_Correct_Low();
+// //     //Place_Correct_Low(); 
+// //     //Place_Correct_Low(); 
+// //     //
+// //     // HAL_Delay(500);
+// //     // Pick_Gripper_Release();
+// //     //  Pick_Gripper_Grab();
+// //     // Pick_JumpTo POS_1;
+// //     // Pick_Gripper_Release();
+// //     // Pick_JumpTo POS_RUN;
+// //     // Pick_JumpTo POS_CAR;
+// //     // Pick_Gripper_Grab();
+// //     // HAL_Delay(500);
+// //     // Pick_Gripper_Release();
+// //     // Pick_JumpTo POS_RAW_B;
+// //     // Pick_Gripper_Grab();
+// //     // HAL_Delay(500);
+// //     // Pick_Gripper_Release();
+// //     // Pick_JumpTo POS_RAW_A;
+// //     // Pick_Gripper_Grab();
+// //     // HAL_Delay(500);
+// //     // Pick_Gripper_Release();
+// //     // Pick_JumpTo POS_RAW_C;
+// //     Pick_Correct();
+// //    //Pick_JumpTo POS_RAW_C;
    
-    //Pick_RAW();
-    //Pick_RAW_PLUS();
-    Pick_RAW_PLUS_FAST();
+// //     //Pick_RAW();
+// //     //Pick_RAW_PLUS();
+// //     Pick_RAW_PLUS_FAST();
     // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
     //         // Place_Correct_Low();
     //         // Place_ROUGH();
@@ -666,28 +668,28 @@ static void Test_Pick_POS_Test(void)
     //QRcode_Task();
     //Key_Scan(&key_zone);
     //============测试夹爪加紧程度===========//
-    Pick_JumpTo POS_RUN;
-    Pick_Gripper_Release();
-    Pick_Gripper_Grab();
-    Pick_Gripper_Release();
-    //============测试车上的位置===========//
-    Pick_JumpTo POS_CAR;
-    Pick_Gripper_Release();
-    Pick_Gripper_Grab();
-    Pick_JumpTo POS_RUN;
-    Pick_Gripper_Release();
-    //============测试放置区的位置===========//
-    Pick_JumpTo POS_RUN;
-    Pick_Gripper_Release();
-    Pick_Gripper_Grab();
-    Pick_JumpTo POS_2; //POS_1/POS_2/POS_3
-    Pick_JumpTo POS_RUN;
-    Pick_Gripper_Release();
-    //============测试原料区的位置===========//
-    Pick_JumpTo POS_RAW_B;
-    Pick_Gripper_Grab();
-    Pick_JumpTo POS_RUN;
-    Pick_Gripper_Release();
+    Pick_JumpTo POS_START;
+    // Pick_Gripper_Release();
+    // Pick_Gripper_Grab();
+    // Pick_Gripper_Release();
+    // //============测试车上的位置===========//
+    // Pick_JumpTo POS_CAR;
+    // Pick_Gripper_Release();
+    // Pick_Gripper_Grab();
+    // Pick_JumpTo POS_RUN;
+    // Pick_Gripper_Release();
+    // //============测试放置区的位置===========//
+    // Pick_JumpTo POS_RUN;
+    // Pick_Gripper_Release();
+    // Pick_Gripper_Grab();
+    // Pick_JumpTo POS_2; //POS_1/POS_2/POS_3
+    // Pick_JumpTo POS_RUN;
+    // Pick_Gripper_Release();
+    // //============测试原料区的位置===========//
+    // Pick_JumpTo POS_RAW_B;
+    // Pick_Gripper_Grab();
+    // Pick_JumpTo POS_RUN;
+    // Pick_Gripper_Release();
 
     //Pick_Correct();
     //Pick_RAW();

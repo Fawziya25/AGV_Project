@@ -1,4 +1,4 @@
-﻿#include "chassis.h"
+#include "chassis.h"
 #include "Emm_V5.h"
 #include "delay.h"
 #include "radar_config.h"   /* RADAR_ZONE_DEFAULT：上电先按哪个启停区摆 */
@@ -119,13 +119,16 @@ void AGV_Position_GoStraight(uint32_t distance, uint16_t vel, uint8_t dir)
 }
 
 /**
- * @brief 平移移动
+ * @brief 平移移动（横移）
  * 
- * @param distance 距离
- * @param vel 速度
+ * @param distance 距离(mm)
+ * @param vel 速度(RPM)，**上限是宏 Vel_Translate(80)**，传大了会被压下来
  * @param dir 方向
  * 0：向右移动
  * 1：向左移动
+ * @note  横移全靠 45° 辊子侧滑传力，效率和重复性都远低于直行：同一档速度下它先打滑，
+ *        而且滑多少每次都不太一样（表现为距离偏短 + 车体斜滑）。所以横移有**独立的速度上限**
+ *        Vel_Translate(80RPM)，直行/倒车仍用 Vel(350RPM)。要改横移快慢只改那个宏。
  */
 void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 {
@@ -134,6 +137,11 @@ void AGV_Position_Translate(uint32_t distance, uint16_t vel, uint8_t dir)
 
 	/* 0 距离不下发：见 AGV_Position_GoStraight 的说明 */
 	if(distance == 0U) return;
+
+	/* 横移速度上限（只作用于横移，直行不受影响）：现有调用点全传 Vel(350)，
+	   实测那档速度横移会飘，统一压到 Vel_Translate(80)；调用方想更慢可以传更小的值，
+	   以后新加的调用点即使传 Vel 也不会再退回高速横移。 */
+	if(vel > Vel_Translate) vel = Vel_Translate;
 
 	Yaw_MovingOffsetStart();	/* 平移本不该改航向：期间读数变化就是航向漂移，下次转弯消费 */
 	Emm_V5_ClearRxFrame();						// 清历史回帧：后面等的是本次动作新到的到位帧
@@ -632,7 +640,14 @@ void AGV_Position_GoBack()
 		AGV_Position_Go(Points_X[20], Points_Y[20], 0);
 	}
 	AGV_TurnRight();
-	AGV_Position_Go(ox, oy, 0);
+	if(AGV_Zone == 1U)
+	{
+		AGV_Position_Go(ox, oy, 0);
+	}
+	else
+	{
+		AGV_Position_Go(ox-40, oy-30, 0);
+	}
 }
 
 #endif

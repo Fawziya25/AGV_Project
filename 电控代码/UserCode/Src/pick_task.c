@@ -24,7 +24,7 @@
  * 照原料区那套分工，把视觉对正从两个 Place_xxx 里摘出来，只留下放置动作：
  *   Place_Correct_High()   高位观察位 → 开爪 → 0x04 圆环2 粗修正(1s)，不收爪
  *   Place_Correct_Angle()  挪开 7cm → 0x06 角度闭环 → 记基准 a1 → 退回 → 航向复位 a1
- *   Place_Correct_Low()    低位观察位 → 0x04 细修正(30s) → 收爪
+ *   Place_Correct_Low()    低位观察位 → 0x04 细修正(30s) → 固定 0.5° 补角 → 收爪
  *   Place_ROUGH()          只管放：车上三槽依次放到 Place_Color[] 指定的圆环
  *   Place_TEMP_Correct()   摆暂存区观察位 → 开爪 → 0x05 → AGV_Correct(5000) → 收爪
  *   Place_TEMP()           只管放：第二轮同色同环码到高位
@@ -96,6 +96,7 @@ static uint8_t *Pick_Color_List(void)
  */
 static void GrabRawBoxToCar(uint8_t box, uint8_t slot, uint8_t direct)
 {
+    Pick_Gripper_RawOpen();         /* 原料区下探专用张角（PICK_RAW_OPEN，与放料解耦） */
     switch(box)
     {
         case 0:  if(direct) Pick_MoveTo POS_RAW_A; else Pick_JumpTo POS_RAW_A; break;
@@ -150,6 +151,10 @@ static void PlaceToRing(uint8_t slot, uint8_t ring, uint8_t next_slot, uint8_t h
  *        拿不到偏差就不修正 —— 超时的话 dx/dy 还是上一次留下的旧值，拿它驱轮子
  *        会把车带偏；车本来就已经停在原料区，原地不动、直接进抓取反而更安全。
  *        请求函数传 NULL 是因为偏差由 AGV_Correct 直接读全局 dx/dy，不必在这里接值。
+ *
+ *        相机安装偏置用**取料侧那套**（PICK_CAM_MOUNT_CORR_X/Y），和放置侧
+ *        （Place_Correct_*）那套完全独立：原料区观察位与圆环区观察位的光轴落点
+ *        不同处，共用一个数会让某一侧系统性偏半个偏置量。
  */
 void Pick_Correct(void)
 {
@@ -157,7 +162,7 @@ void Pick_Correct(void)
     Pick_Gripper_Observe();         /* 修正期间张开，别挡住相机 */
     if(Cam_SwitchTo(02)&&cam_flag!=0)  /* 偏差落到全局 dx/dy */
     {
-        AGV_Correct(3000);
+        AGV_CorrectWithMountCorr(3000, MOUNT_CORR_PICK);   /* 取料侧独立偏置 */
     }
     Pick_Gripper_Release();         /* 修正完了，下去抓之前收成 release 位 */
 }
@@ -232,11 +237,14 @@ typedef enum
 } RawBox;
 
 /* 臂动作：去 box 框抓一块，放进车上第 slot 槽。不碰底盘。
-   夹爪在上一块 Release 之后停在 release 位(65°)——这个角度本来就是放开料块的角度，
-   比料块宽，可以直接下探；实车要是蹭到料，在 Pick_JumpTo 之前补一句
-   Pick_Gripper_Observe() 即可，代价是每块多一次舵机行程。 */
+   下探前先摆到原料区专用张角 PICK_RAW_OPEN（Pick_Gripper_RawOpen）——以前这里
+   直接沿用离爪后的 PICK_RELEASE，调"下探别蹭料"会把"往圆环放料"的角度一起改掉。
+   已经把两者拆开：原料区只认 PICK_RAW_OPEN，放料只认 PICK_RELEASE。
+   注意初始情况不同：Pick_RAW 进来时夹爪停在 release 位（=RawOpen 默认值，不动作），
+   走六条路线时停在 observe 位，会多一次收拢行程（~250ms，只在第一块）。 */
 static void Raw_PickAt(RawBox box, uint8_t slot)
 {
+    Pick_Gripper_RawOpen();         /* 原料区下探专用张角 */
     switch(box)
     {
         case RAW_BOX_A: Pick_JumpTo POS_RAW_A; break;
@@ -606,12 +614,19 @@ void Pick_RAW_PLUS_FAST(void)
     Pick_JumpTo POS_RUN;
 }
 
+/* ---- 粗加工区低位对正后的固定角度前馈 ----
+   Place_Correct_Low() 的视觉闭环只修 dx/dy（位置），修不了"车体相对圆环还差一个
+   固定角度"这种机械偏角；实测每轮都差同一个方向同一个量，所以在这里补一次开环补角。
+   正负号与 AGV_SetYaw 的目标角同向：实车越补越歪就把 +0.5f 改成 -0.5f。
+   改成 0.0f 即关闭（AGV_TrimYaw 内部会直接返回，连 CAN 都不发）。 */
+#define PLACE_CORRECT_LOW_YAW_FF_DEG   (0.7f)
+
 /**
- * @brief 粗加工区放置前的视觉对正【低位】：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct 闭环 → 收爪
+ * @brief 粗加工区放置前的视觉对正【低位】：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct 闭环 → 固定补角 → 收爪
  * @note  这是三步对正里的**最后一步**，也负责收爪：
  *          Place_Correct_High()  → 高位粗修正（不收爪）
  *          Place_Correct_Angle() → 移位量角度、航向复位（不碰夹爪）
- *          Place_Correct_Low()   → 本位细修正 + 收爪，然后才 Place_ROUGH()
+ *          Place_Correct_Low()   → 本位细修正 + 固定补角 + 收爪，然后才 Place_ROUGH()
  *        也只单独调它（第二轮暂存区 case Place2 就走这一条）。
  *        所以 Place_ROUGH 自己**不再**重复做视觉这一步（和 Pick_Correct / Pick_RAW 一样的分工）。
  *
@@ -621,6 +636,10 @@ void Pick_RAW_PLUS_FAST(void)
  *
  *        拿不到偏差就不修正 —— 超时的话 dx/dy 还是上一次留下的旧值，拿它驱轮子
  *        会把车带偏；车本来就停在粗加工区，原地不动、直接进放置反而更安全。
+ *
+ *        补角(PLACE_CORRECT_LOW_YAW_FF_DEG)是**开环**的机械常数补偿：位置闭环只看
+ *        得见 dx/dy，看不见"车体相对圆环固定歪了半度"。走 AGV_TrimYaw() 而不是
+ *        AGV_SetYaw() —— 后者在小误差下会被 (uint16_t) 速度截断卡住、且没有超时。
  */
 void Place_Correct_Low(void)
 {
@@ -630,6 +649,11 @@ void Place_Correct_Low(void)
     {
         AGV_Correct(3000);
     }
+    /* 位置闭环只修 dx/dy，修不了"车体相对圆环固定差一个角"，所以再补一次固定前馈。
+       相机这次没识别成功(上面没进 if)也照补：偏角是机械常数，跟识别成功与否无关。 */
+    AGV_TrimYaw(PLACE_CORRECT_LOW_YAW_FF_DEG);
+    /* 航向被主动改了，名义基准必须跟上，否则下一个转弯会把这个角拧回去 */
+    Yaw_NominalSync();
     Pick_Gripper_Release();             /* 修正完了，下去放之前收成 release 位 */
 }
 
@@ -709,16 +733,17 @@ void Place_Correct_Angle(void)
         abs_err = (err < 0.0f) ? -err : err;
         if(abs_err < PLACE_CORRECT_ANGLE_DB) break; /* 已经对正，不用再动 */
 
-        AGV_SetYaw(ZeroBias_GetYaw() + PLACE_CORRECT_ANGLE_GAIN * err);
+        AGV_SetYaw(HWT101_GetYaw() + PLACE_CORRECT_ANGLE_GAIN * err);
     }
 
     /* ---- 3) 把对正后的实际航向记成基准 a1 ---- */
-    a1 = ZeroBias_GetYaw();
+    a1 = HWT101_GetYaw();
 
     /* ---- 4) 退回原放料位，并把航向复位到 a1 ---- */
     AGV_Position_GoStraight(PLACE_CORRECT_ANGLE_SHIFT_MM, Vel,
                             (uint8_t)(PLACE_CORRECT_ANGLE_SHIFT_DIR ^ 1U));
     AGV_SetYaw(a1);
+    Yaw_NominalSync();   /* 对正是"有意"改航向：不重设基准，下个转弯会把 a1 抹掉 */
 }
 
 /**

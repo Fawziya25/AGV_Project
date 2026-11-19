@@ -1,6 +1,5 @@
 #include "hwt101.h"
 #include "usart.h"
-#include "yawPIDcontroller.h"
 #include "oled.h"
 #include "QRcode.h"     /* HAL 接收回调要按 USART3 分发扫码数据 */
 
@@ -35,8 +34,6 @@ void HWT101_Init(UART_HandleTypeDef *huart)
     hwt101.rawWz = 0.0f;
     hwt101.version = 0U;
     hwt101.dataReady = false;
-
-    ZeroBias_Reset();   /* 清零零偏估计状态;随后 ManualCal() 会采集一次静止窗口 */
 
     /* 使能接收中断，逐字节接收并组帧 */
     __HAL_UART_ENABLE_IT(huart, UART_IT_RXNE);
@@ -121,7 +118,6 @@ static void HWT101_ParseFrame(void)
             hwt101.yaw = (float)value * HWT101_ANGLE_SCALE;
             hwt101.version = (uint16_t)((uint16_t)hwt101.frame[9] << 8 | (uint16_t)hwt101.frame[8]);
             hwt101.dataReady = true;
-            ZeroBias_Feed();    /* 每个有效角度帧喂一次零偏估计器(替代原TIM7节拍) */
             break;
 
         default:
@@ -369,8 +365,8 @@ float HWT101_GetWz(void)
 
 /**
  * @brief 手动获取零偏校准（写MANUALCALI=1，机器人必须完全静止后调用）
- * @note  阻塞 HWT101_MANCAL_SEC 秒, 期间 OLED 显示倒计时; 整机必须静止
- *        (臂/舵机也不要甩, 窗口内 |wz| 超过 ZB_RATE_GATE 会让零偏窗口作废)。
+ * @note  阻塞 HWT101_MANCAL_SEC 秒, 期间 OLED 显示倒时; 整机必须静止。
+ *        零偏由模块固件自校准(2026-11-18 起软件估计器已删,详见 yawPIDcontroller.h)。
  *        OLED_ShowString 只画可打印 ASCII, 汉字要用 OLED_ShowChinese(字模序号)。
  *        只重画变化的数字, 每秒 OLED_Refresh() 一次, 不做整屏清屏避免闪烁。
  * @retval None
@@ -379,7 +375,6 @@ float HWT101_GetWz(void)
  */
 void HWT101_ManualCal()
 {
-    ZeroBias_Start();
     HWT101_ManualCalStart();
 
     OLED_Clear();
@@ -395,5 +390,4 @@ void HWT101_ManualCal()
     OLED_Refresh();
 
     HWT101_ManualCalStop();
-    ZeroBias_End();
 }

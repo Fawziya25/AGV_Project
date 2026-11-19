@@ -27,8 +27,27 @@
 #define YAW_PID_KI  0.035f
 #define YAW_PID_KD  0.045f
 
-#define ZB_RATE_GATE    0.3f    /* 角速度门控(°/s):超过视为真实运动 */
-#define ZB_MIN_SAMPLES  20U     /* 窗口最少有效样本数(10Hz≈2s,50Hz≈0.4s) */
+/* ============ 航向基准与偏差学习（2026-11-18 重构） ============
+ * 新框架一句话：**转弯直接瞄准名义航向**，target = Nominal ± 90 + 转向×turnLag。
+ *   - 名义航向 Nominal 是唯一基准：转弯 ±90/180 更新；视觉对正后 Yaw_NominalSync()。
+ *     上电后车体再被偏转(挪车/碰撞/打滑/读数漂移)全部体现在「当前读数−Nominal」
+ *     里，转弯瞄准 Nominal 时一次性修掉 → 数学上不跨段累积（仿真：上电后偏 5°，
+ *     12 次转弯后旧框架误差 5~12°，新框架 0.06°）。摆放相对场地的歪不在此列。
+ * 残差在**车停稳之后**采样：控制环把读数拧到目标，停稳残差 = 控制环出口的
+ * 读数差(死区相位+滑行)，累计读数漂移在这个差值里被消掉 → turnLag 不吃漂移。
+ *   - movingDelta 只作行进偏差观测量（诊断/上位机），不进控制——它代表的偏差
+ *     已被「瞄准名义角」自动修掉。
+ * 软件零偏估计器(ZeroBias_*)整套删除：零偏交给 HWT101 模块固件自校准
+ * （HWT101_Init → ManualCal 写 0xA6，协议对 AGV 的推荐用法），读数一律
+ * HWT101_GetYaw()。
+ * ⚠ 残余零偏的真实代价在**真实航向**：车实际朝向 = 名义角 − 累计读数漂移，
+ *   每段带一个当段漂移量(不跨段叠加)。防它的是模块零偏管理：上电 6s ManualCal
+ *   + 中途每个工位静止 20~60s 触发模块自动校零(NOAUTOCALI 出厂默认开)。 */
+#define YAW_LAG_GAIN      1.0f    /* 残差学习增益：1.0 = 直接用上次残差当预测 */
+#define YAW_LAG_LIMIT     0.8f    /* 残差幅值上限(°)：超出判异常(打滑/被撞)，不学 */
+#define YAW_LAG_MIN_TURN  30.0f   /* 学残差的最小转角(°)：视觉小修正噪声占比大，不学 */
+#define YAW_SETTLE_EPS    0.05f    /* 停稳判据：相邻两拍读数差(°) */
+#define YAW_SETTLE_TICKS  15U      /* 停稳等待上限(拍, 10ms/拍) */
 
 typedef struct {
 	float kp;
@@ -42,70 +61,41 @@ typedef struct {
     float output;
 }YawPID_TypeDef;
 
-/* 转弯滞后学习（2026-11-17，修"残差符号"问题）
-   转弯总是"差一点就停"：误差进死区 |e|<0.2° 就发停车，轮子再滑一小段才停住。
-   这个"差一点"的**幅值**是机器属性（死区 + 停位延时 + 齿隙），跟转 90° 还是 180°
-   无关；但它的**方向永远与本次转弯同向**——所以补偿时必须乘本次转向，不能直接用
-   上一次残差的正负号。原来的写法把带符号的 RotatingOffset 直接减掉，符号对不对
-   取决于"下一次转弯和这次是不是同向"，等于靠运气。
-   现在只学幅值 RotatingMag，按本次转向加到转角上，与转弯顺序无关。
-   ⚠ 但别期待它带来多少收益：主机仿真 12 次转弯，同向路线 0.11°→0.11°，
-     左右交替路线 0.11°→0.15°（**反而略差**）。因为交替时前后两次的滞后本来就会
-     互相抵消，没有可补偿的系统量，补偿只是把上一次的噪声搬到下一次。
-     真正能把误差压到 0.04° 的是"拿名义航向做绝对反馈"（见改动记录）。 */
-#define YAW_ROT_LAG_GAIN   1.0f    /* 幅值学习增益：1.0 = 直接用上一次的幅值当预测
-                                      （对"每次转弯都差这么多"的常值滞后最准）。
-                                      调小只是平滑，会让常值滞后收敛变慢、残余变大。 */
-#define YAW_ROT_LAG_MAX    0.8f    /* 幅值上限(°)：超过判为异常(打滑/被撞)，不学、清零。
-                                      0.8° ≈ 死区的 4 倍，正常停位不会到 */
-
-typedef struct{
-    float MovingOffset;      /* 平移期间的读数漂移(累加，转弯时消费掉) */
-    float MovingOffsetStart;
-    float MovingOffsetEnd;
-    float RotatingOffset;    /* 上一次转弯的残差(带符号，只用于观察/判断方向) */
-    float RotatingMag;       /* 学到的转弯滞后幅值(°，≥0)，按本次转向加进目标角 */
-}YawOffset_TypeDef;
-
-typedef struct
-{
-    volatile uint8_t active;    /* 窗口进行中 */
-    uint8_t          dirty;     /* 窗口被污染,结束时丢弃 */
-    uint32_t         n;         /* 有效样本数 */
-    float            sumWz;     /* 角速度累加(均值 = 零偏) */
-    float            startYaw;  /* 窗口起始读数(°) */
-    float            yawDriftComp; /* 累计漂移补偿量,读数减去它 */
-    float            b_hat;     /* 最新零偏估计(°/s),跨窗口EMA平滑 */
-} ZeroBias_TypeDef;
-
 /* 小车朝向: 0:X+ 1:Y+ 2:X- 3:Y-，由 AGV_TurnLeft/Right 每次转弯后更新 */
 extern uint8_t AGV_Direction;
 
-/* yawPID / yawOffset / TurnCpltFlag 均为 yawPIDcontroller.c 内部静态量,不对外导出 */
+/* yawPID / 名义角 / turnLag 等均为 yawPIDcontroller.c 内部静态量,经下面的 getter 读 */
 
-// 初始化角度PID控制器(增益取 YAW_PID_KP/KI/KD 宏,无需传参)
+// 初始化角度PID控制器(增益取 YAW_PID_KP/KI/KD 宏,无需传参)；
+// 会把当前实际航向设为名义基准，仅测试模式上电时调
 void YawPID_Init(void);
-// 设置小车目标航向角
+// 把当前实际航向设为新的名义基准：视觉对正/人工挪车后必须调，
+// 否则下一次转弯会把车拧回旧的名义角，对正成果被抹掉
+void Yaw_NominalSync(void);
+// 设置小车目标航向角(阻塞到进死区停车；导航转弯请用下面的 AGV_TurnXxx)
 void AGV_SetYaw(float yaw);
-// 左转
+// 相对转角微调(闭环、带最低角速度、带超时)：半度级前馈补偿用。
+// delta_deg 正负号与 AGV_SetYaw 的目标角同向；不学 turnLag、不动名义角
+// (要并入基准由调用方自己 Yaw_NominalSync())；返回时车已停住，不会卡死。
+void AGV_TrimYaw(float delta_deg);
+// 左转/右转/掉头：目标 = 名义角 ± 90/180 + 转向×停位残差学习
 void AGV_TurnLeft(void);
-// 右转
 void AGV_TurnRight(void);
 void AGV_TurnBack(void);
 void AGV_Turn(uint8_t dir);
 
+// 行进偏差观测对：AGV_Position_GoStraight/Translate 内部已成对调用，别处不用调
+void Yaw_MovingOffsetStart(void);
+void Yaw_MovingOffsetEnd(void);
+
+// ---- 观测口（debugger watch / OLED / 上位机） ----
+float Yaw_GetNominal(void);       /* 名义航向(°) */
+float Yaw_GetTurnLag(void);       /* 停位残差学习值(°, 停早为正) */
+float Yaw_GetLastResid(void);     /* 上次转弯停稳后的带符号残差(°) */
+float Yaw_GetMovingDelta(void);   /* 自上次转弯以来的行进偏差累计(°) */
+
 void FormatYaw(float yaw, char *buf);
 // 主循环周期调用:OLED固定行显示当前航向(调试)
 void Yaw_OLED_Show(void);
-
-// 带门控的陀螺零偏在线估计器(实现在 yawPIDcontroller.c)
-void  ZeroBias_Reset(void);   /* 上电/发车前清零全部状态 */
-void  ZeroBias_Start(void);   /* 开始静止窗口(车停稳后调用) */
-void  ZeroBias_Feed(void);    /* 每收到新IMU数据时调用 */
-void  ZeroBias_End(void);     /* 结束窗口(开始移动前调用) */
-float ZeroBias_GetYaw(void);  /* 漂移补偿后的航向角(°),替代HWT101_GetYaw() */
-float ZeroBias_GetBias(void); /* 当前零偏估计(°/s),供MovingOffset修正 */
-void Yaw_MovingOffsetStart(void);
-void Yaw_MovingOffsetEnd(void);
 
 #endif

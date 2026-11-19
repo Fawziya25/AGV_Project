@@ -681,6 +681,17 @@ void Pick_Gripper_Release(void)
     Servo_SetAngleSmooth(SERVO_GRIP, PICK_RELEASE, SERVO_G_STEP_DEG, SERVO_G_STEP_MS);
 }
 
+/**
+ * @brief 原料区下探抓料前的张开角（PICK_RAW_OPEN），与放料用的 PICK_RELEASE 解耦
+ * @note  只在原料区抓取路径里调（Pick_RAW / Pick_RAW_PLUS 六条路线都是 GrabRawBoxToCar
+ *        或 Raw_PickAt，它们在 Pick_JumpTo POS_RAW_x 之前各调一次）。
+ *        已经停在这个角度时 Servo_SetAngleSmooth 内部 total<1e-3 直接返回，不额外耗时。
+ */
+void Pick_Gripper_RawOpen(void)
+{
+    Servo_SetAngleSmooth(SERVO_GRIP, PICK_RAW_OPEN, SERVO_G_STEP_DEG, SERVO_G_STEP_MS);
+}
+
 
 /* ==================== 车上转盘 ==================== */
 

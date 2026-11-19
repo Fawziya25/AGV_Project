@@ -92,7 +92,7 @@ void Emm_V5_Synchronous_motion(uint8_t addr);
 *** 0xFD 0x9F=到位(执行完成)，0xFD 0xE2=条件不满足(堵转保护/未使能)。
 **********************************************************/
 /* 等到位帧超时(ms)：需覆盖最长一段移动(GoStraight 1865mm@150RPM≈3s) */
-#define EMM_V5_ARRIVE_TMO_MS   5000U
+#define EMM_V5_ARRIVE_TMO_MS   6000U
 /* 等命令回帧超时(ms)：只用于确认命令已被电机接收，很短即可 */
 #define EMM_V5_ACK_TMO_MS       200U
 // 清CAN回帧标志：发命令前调用，使随后的等待只认本次动作新到的帧

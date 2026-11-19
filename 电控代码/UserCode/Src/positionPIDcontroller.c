@@ -45,14 +45,33 @@
    符号：加在【相机发来的原始 dx/dy】上（与 AGV_ALIGN_WIN_PX 同坐标系，
    在 POS_PX_SCALE 缩放之前）。Y=+45 → 零点上移（画面上方）；实车越修越远
    就取反。X 默认 0（旧视觉带过 -1.2px 横向小偏置，要完全复刻就填 1.2）。
-   换相机高度/分辨率/安装位置后按 mm↔px 重新标定。 */
-#define CAM_MOUNT_CORR_ENABLE  1       /* 总开关：0=回到"纯画面中心"零点 */
-#define CAM_MOUNT_CORR_X        0.0f    /* 横向偏置(px)，一般不动 */
-#define CAM_MOUNT_CORR_Y        25.0f   /* 纵向偏置(px)：相机中心后移20mm↔45px */
+   换相机高度/分辨率/安装位置后按 mm↔px 重新标定。
+
+   【2026-11-19：拆成两套，互不影响】
+     放置侧 CAM_MOUNT_CORR_X / CAM_MOUNT_CORR_Y  —— Place_Correct_High /
+            Place_Correct_Low / Place_TEMP_Correct 以及其它默认入口用的那套；
+     取料侧 PICK_CAM_MOUNT_CORR_X / PICK_CAM_MOUNT_CORR_Y —— **只有
+            Pick_Correct() 用**。取料时臂在原料区观察位、相机对着原料区，
+            光轴落点和圆环区不是同一处，偏置必须单独标定，不能共用一套。
+   两套都受同一个总开关 CAM_MOUNT_CORR_ENABLE 控制。
+   ⚠ 视觉/电控只能有一边开这个补偿：两边都开 = 净偏 90px（40mm）。 */
+#define CAM_MOUNT_CORR_ENABLE  1       /* 总开关：0=回到"纯画面中心"零点(两套一起失效) */
+#define CAM_MOUNT_CORR_X        0.0f    /* 放置侧横向偏置(px)，一般不动 */
+#define CAM_MOUNT_CORR_Y        25.0f   /* 放置侧纵向偏置(px)：相机中心后移20mm↔45px */
+
+/* 取料侧（Pick_Correct 专用）：与上面那套完全独立，实车上单独标定。
+   只改这两个数，不影响放置侧；改完跑一次 Pick_Correct，看屏上 x/y≈0 即对准。 */
+#define PICK_CAM_MOUNT_CORR_X   0.0f    /* 取料侧横向偏置(px) */
+#define PICK_CAM_MOUNT_CORR_Y   10.0f   /* 取料侧纵向偏置(px) */
 /* ============================================================= */
 
 PosPID_TypeDef posPID_X;
 PosPID_TypeDef posPID_Y;
+
+/* 当前闭环正在用的那套相机安装偏置：AGV_CorrectWithMountCorr() 进循环时置位，
+   调试屏(test.c 的 Dbg_ShowScreen)无条件调 AGV_Correct_ApplyMountCorr() 时读它
+   —— 这样"屏上 x/y≈0" 永远等于本次闭环的真对准点，取料/放置各看各的那一套。 */
+static MountCorrSet s_mountCorr = MOUNT_CORR_PLACE;
 
 /**
  * @brief 初始化位置修正PID（两轴共用一组参数，清空历史状态）
@@ -168,49 +187,81 @@ static int16_t CamMountCorr_Round(float v)
 {
     return (int16_t)((v >= 0.0f) ? (v + 0.5f) : (v - 0.5f));
 }
+
+/* 按用途取那一套偏置：取料侧与放置侧互相独立（见顶部两套宏） */
+static void CamMountCorr_Get(MountCorrSet set, float *px, float *py)
+{
+    if(set == MOUNT_CORR_PICK)
+    {
+        *px = PICK_CAM_MOUNT_CORR_X;
+        *py = PICK_CAM_MOUNT_CORR_Y;
+    }
+    else
+    {
+        *px = CAM_MOUNT_CORR_X;
+        *py = CAM_MOUNT_CORR_Y;
+    }
+}
 #endif
 
 /**
- * @brief 相机安装偏差补偿：把相机原始 dx/dy（相对画面中心）换成相对夹爪落点的偏差
+ * @brief 相机安装偏差补偿（指定用哪一套偏置）：原始 dx/dy → 相对夹爪落点的偏差
  * @param pdx / pdy  进出同参：输入原始偏差，输出补偿后偏差（px，原地替换）
- * @note  对准判定与 PID 都必须用补偿后的值 —— 两处共用本函数保证零点一致；
- *        调试屏（test.c）显示也调它，屏上 x/y≈0 才等于闭环真对准（若显示原始值，
- *        对准时 y 恒为 -45，一眼看上去像没修完）。补偿量见顶部 CAM_MOUNT_CORR_*。
+ * @param set        MOUNT_CORR_PLACE=放置侧那套 / MOUNT_CORR_PICK=取料侧那套
+ * @note  对准判定与 PID 必须用同一套；两套值见顶部 CAM_MOUNT_CORR_* /
+ *        PICK_CAM_MOUNT_CORR_*。
  */
-void AGV_Correct_ApplyMountCorr(int16_t *pdx, int16_t *pdy)
+void AGV_Correct_ApplyMountCorrEx(int16_t *pdx, int16_t *pdy, MountCorrSet set)
 {
 #if CAM_MOUNT_CORR_ENABLE
-    *pdx = CamMountCorr_Round((float)*pdx + CAM_MOUNT_CORR_X);
-    *pdy = CamMountCorr_Round((float)*pdy + CAM_MOUNT_CORR_Y);
+    float cx, cy;
+
+    CamMountCorr_Get(set, &cx, &cy);
+    *pdx = CamMountCorr_Round((float)*pdx + cx);
+    *pdy = CamMountCorr_Round((float)*pdy + cy);
 #else
     (void)pdx;                     /* 关补偿=原样返回，闭环/屏显回到画面中心零点 */
     (void)pdy;
+    (void)set;
 #endif
+}
+
+/**
+ * @brief 相机安装偏差补偿：用"当前闭环那套"（供调试屏等不知道上下文的调用方）
+ * @note  当前套由 AGV_CorrectWithMountCorr() 设置；没进过闭环时是放置侧那套。
+ */
+void AGV_Correct_ApplyMountCorr(int16_t *pdx, int16_t *pdy)
+{
+    AGV_Correct_ApplyMountCorrEx(pdx, pdy, s_mountCorr);
 }
 
 /**
  * @brief 视觉闭环修正主流程：持续修正直到"真对准"或超时（阻塞），退出前自动停车
  * @param timeout_ms 本段修正允许的总时长(ms)，超时强制退出并停车
+ * @param set        用哪一套相机安装偏置：MOUNT_CORR_PLACE(放置侧，默认) /
+ *                   MOUNT_CORR_PICK(取料侧，Pick_Correct 专用)
  * @note  原 Pick_Correct 整体搬移至此（pick_task 只负责调度）。
  *        - 控制节拍锁 ~20Hz(AGV_CTRL_TICK_MS)：只按节拍消费一帧，控制率不随
  *          相机帧率(实测~40fps)漂移，与 KP 标定的 10~20Hz 环境一致 → 无需重调 KP。
  *        - 对准判据：连续 AGV_ALIGN_HOLD_CNT 个节拍都在 |cdx|,|cdy|<=AGV_ALIGN_WIN_PX
  *          内才退出；单帧出窗/目标丢失即清零 → 防"过冲经过0点"或抖动造成的假对准。
- *        - 相机安装偏差补偿：每拍消费帧后先经 AGV_Correct_ApplyMountCorr() 把原始
+ *        - 相机安装偏差补偿：每拍消费帧后先经 AGV_Correct_ApplyMountCorrEx() 把原始
  *          dx/dy（相对画面中心）换成相对夹爪落点的 cdx/cdy，对准判定与 PID 同用它
- *          —— 相机中心比夹爪落点后移 20mm（↔45px），见顶部 CAM_MOUNT_CORR_*。
+ *          —— 取料/放置光轴落点不同，两套偏置各用各的（见顶部两套宏）。
+ *          同时把本次用的那套记进 s_mountCorr，调试屏显示自动跟着走。
  *        - 未识别到目标(cam_flag==0)时不下发(保持当前轮速)、等目标回来；全程无帧则空转到超时。
  *        - OLED 刷新(~20ms软I2C整屏)已移出本循环，避免拖乱 50ms 控制节拍。
  *        全局变量 dx/dy 等在 camera.h 声明。
  */
-void AGV_Correct(uint32_t timeout_ms)
+void AGV_CorrectWithMountCorr(uint32_t timeout_ms, MountCorrSet set)
 {
+    s_mountCorr = set;                      /* 屏显跟随本次闭环 */
     PositionPID_Init();                 /* 每次修正重新初始化PID状态 */
     uint32_t start_time = HAL_GetTick();    // 超时计时起点
     uint32_t last_ctrl = 0;                 /* 上次真正下发轮速的时刻(0=首个节拍立即执行) */
     uint8_t  align_cnt = 0;                 /* 连续在窗口内的节拍数 */
 
-    float temp_yaw = ZeroBias_GetYaw();  /* 记录修正前的航向，修正后再回到此航向 */
+    float temp_yaw = HWT101_GetYaw();  /* 记录修正前的航向，修正后再回到此航向 */
 
     while((HAL_GetTick() - start_time) < timeout_ms)
     {
@@ -228,11 +279,11 @@ void AGV_Correct(uint32_t timeout_ms)
         cam_receive_flag = 0;
         last_ctrl = HAL_GetTick();
 
-        /* 相机安装偏差补偿（顶部 CAM_MOUNT_CORR_*）：本拍闭环用的偏差以补偿后的
-           cdx/cdy 为准 —— 对准判定与 PID 必须同源，否则窗口和 PID 的零点差 45px，
-           会一进窗就带着 45px 残差"假对准"退出。 */
+        /* 相机安装偏差补偿（顶部两套宏，本次按 set 选一套）：本拍闭环用的偏差以
+           补偿后的 cdx/cdy 为准 —— 对准判定与 PID 必须同源，否则窗口和 PID 的
+           零点差一个偏置量，会一进窗就带着残差"假对准"退出。 */
         int16_t cdx = dx, cdy = dy;
-        AGV_Correct_ApplyMountCorr(&cdx, &cdy);
+        AGV_Correct_ApplyMountCorrEx(&cdx, &cdy, set);
 
         /* 无目标：不下发(保持上次轮速)、清零对准计数，等目标回来 */
         // if(cam_flag == 0U)
@@ -256,4 +307,14 @@ void AGV_Correct(uint32_t timeout_ms)
     }
     AGV_Position_Stop();    /* 退出(真对准或超时)立即停车 */
     AGV_SetYaw(temp_yaw);  /* 修正后回到修正前的航向 */
+}
+
+/**
+ * @brief 视觉闭环修正（默认入口）：用**放置侧**那套相机安装偏置
+ * @note  等价于 AGV_CorrectWithMountCorr(timeout_ms, MOUNT_CORR_PLACE)。
+ *        Pick_Correct 要用自己那套，见 AGV_CorrectWithMountCorr()。
+ */
+void AGV_Correct(uint32_t timeout_ms)
+{
+    AGV_CorrectWithMountCorr(timeout_ms, MOUNT_CORR_PLACE);
 }
