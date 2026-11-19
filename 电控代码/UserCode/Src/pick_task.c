@@ -619,7 +619,7 @@ void Pick_RAW_PLUS_FAST(void)
    固定角度"这种机械偏角；实测每轮都差同一个方向同一个量，所以在这里补一次开环补角。
    正负号与 AGV_SetYaw 的目标角同向：实车越补越歪就把 +0.5f 改成 -0.5f。
    改成 0.0f 即关闭（AGV_TrimYaw 内部会直接返回，连 CAN 都不发）。 */
-#define PLACE_CORRECT_LOW_YAW_FF_DEG   (0.7f)
+#define PLACE_CORRECT_LOW_YAW_FF_DEG   (0.5f)
 
 /**
  * @brief 粗加工区放置前的视觉对正【低位】：摆圆环观察位 → 开爪 → 0x04 拿偏差 → AGV_Correct 闭环 → 固定补角 → 收爪
@@ -652,8 +652,8 @@ void Place_Correct_Low(void)
     /* 位置闭环只修 dx/dy，修不了"车体相对圆环固定差一个角"，所以再补一次固定前馈。
        相机这次没识别成功(上面没进 if)也照补：偏角是机械常数，跟识别成功与否无关。 */
     AGV_TrimYaw(PLACE_CORRECT_LOW_YAW_FF_DEG);
-    /* 航向被主动改了，名义基准必须跟上，否则下一个转弯会把这个角拧回去 */
-    Yaw_NominalSync();
+    /* 这里不要清行进偏差：这 0.5° 是**有意**加的偏置，不是误差；
+       而到达这里之前直行跑偏的那部分该留到下次转弯补掉。 */
     Pick_Gripper_Release();             /* 修正完了，下去放之前收成 release 位 */
 }
 
@@ -743,7 +743,9 @@ void Place_Correct_Angle(void)
     AGV_Position_GoStraight(PLACE_CORRECT_ANGLE_SHIFT_MM, Vel,
                             (uint8_t)(PLACE_CORRECT_ANGLE_SHIFT_DIR ^ 1U));
     AGV_SetYaw(a1);
-    Yaw_NominalSync();   /* 对正是"有意"改航向：不重设基准，下个转弯会把 a1 抹掉 */
+    /* 相机刚把航向绝对对正过：对正之前记下的行进偏差已经作废，清掉，
+       否则会到下次转弯里再补一遍。停位残差(yawLastResid)不动，那是机械属性。 */
+    Yaw_ClearMovingDelta();
 }
 
 /**

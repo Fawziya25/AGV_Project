@@ -10,23 +10,26 @@ static uint8_t TurnCpltFlag = 0;     /* 转弯完成标志位 */
    目标点差量拆成"直行/平移"两段；每次转弯后由 TurnLeft/TurnRight 更新 */
 uint8_t AGV_Direction = 3;
 
-/* ================= 航向基准与偏差学习（2026-11-18 重构） =================
- * 旧框架(MovingOffset/RotatingOffset 进转弯目标)是纯相对导航：任何没被
- * 补偿项覆盖的误差(摆车歪、视觉对正、异常残差、读数漂移)都原样带进下一段。
- * 新框架：**转弯直接瞄准名义航向**，target = Nominal ± 90 + 转向×turnLag。
- *   yawNominal  名义航向(°)：车"应该"朝哪。转弯 ±90/180 更新；
- *               视觉对正后 Yaw_NominalSync() 重设(否则对正成果会被下个转弯抹掉)。
- *               当前读数与 Nominal 的差 = 全部历史误差，瞄准 Nominal 即一次性修掉。
- *   turnLag     停位残差学习(°, 停早为正)：死区停车 + 车轮滑行让每次转弯都
- *               少转一点，是机器属性；按本次转向加进目标(停稳后正好落回名义角)。
- *   yawLastResid 上次转弯停稳后的带符号残差(°)：观测/学习源。
- *   movingDelta 自上次转弯以来的行进偏差累计(°)：观测量，不进控制。
+/* ================= 航向：记录 + 修正（相对导航，2026-11-19 简化） =================
+ * 一句话：**转弯目标从"当前读数"算起，把上次的残差和这一段的行进偏差扣掉**。
+ *   target = 当前读数 + 转向×90/180 − 上次停位残差 − 本段行进偏差
+ *
+ *   yawLastResid 上次导航转弯停稳后的残差(°) = 停稳读数 − 目标。
+ *                正 = 转多了，负 = 少转了；下次转弯先把它补回来。
+ *   movingDelta  自上次转弯以来，直行/平移期间读数的变化累计(°)。
+ *                车本来就该保持航向，读数变了多少，下次转弯就反着补多少。
+ *   movStart     上面那个测量的起点读数(°)。
+ *
+ * 两项都是**记录**，没有学习、没有门限、没有滤波：记下来，下次转弯扣掉。
+ * 目标从当前读数算起 ⇒ 读数里恒定的零偏在相减时抵消，
+ * **不会把零漂变成真实转动**（这是相对导航相对"瞄固定名义角"的唯一优势）。
+ * 代价：没有绝对基准，摆车时相对场地歪的那几度修不回来（实车摆车是准的，
+ * 故可接受）；记录本身不准的部分会按"绕圈"方式慢慢攒。
+ *
  * 软件零偏估计器(ZeroBias_*)已整套删除，零偏由 HWT101 模块固件自校准
  * (HWT101_Init → ManualCal 写 0xA6，协议对 AGV 的推荐用法)。 */
-static float yawNominal;     /* 名义航向(°) */
-static float turnLag;        /* 停位残差学习(°)：停早为正 */
-static float yawLastResid;   /* 上次转弯停稳后的残差(°)：读数 − 目标 */
-static float movingDelta;    /* 行进偏差观测累计(°) */
+static float yawLastResid;   /* 上次导航转弯停稳后的残差(°)：读数 − 目标 */
+static float movingDelta;    /* 自上次转弯以来的行进偏差累计(°) */
 static float movStart;       /* 行进偏差测量的起点读数(°) */
 
 static void AGV_StopNow(void);
@@ -48,7 +51,7 @@ static float Yaw_Normalize180(float angle)
 
 /**
  * @brief 装载增益 + 清 PID 运行状态（每次转弯前调）
- * @note  不碰名义角/turnLag：那是跨段要用的导航状态，清掉补偿就白学了。
+ * @note  不碰 yawLastResid / movingDelta：那是跨段要用的记录值，清掉就不补了。
  *        integral / prevError 每次转弯开头清一次无害（死区里本来就把 integral 清了）。
  */
 static void YawPID_Prepare(void)
@@ -63,8 +66,8 @@ static void YawPID_Prepare(void)
 }
 
 /**
- * @brief 初始化航向控制与导航基准（测试模式上电时调；正式流程走 AGV_Init 里的
- *        Yaw_NominalSync()，不依赖本函数）
+ * @brief 初始化航向控制（测试模式上电时调；正式流程里 AGV_SetYaw() 自带
+ *        YawPID_Prepare()，不依赖本函数）
  * @retval None
  */
 void YawPID_Init(void)
@@ -72,9 +75,8 @@ void YawPID_Init(void)
     YawPID_Prepare();
     yawPID.target = 0.0f;
     yawPID.current = 0.0f;
-    Yaw_NominalSync();        /* 当前实际朝向即名义基准 */
-    turnLag      = 0.0f;
-    yawLastResid = 0.0f;
+    yawLastResid = 0.0f;   /* 上电还没转过弯，没有可补的记录 */
+    movingDelta  = 0.0f;
 }
 
 /**
@@ -141,17 +143,14 @@ static void yawPID_Calculate(void)
  * @brief 阻塞转弯到目标航向（100Hz，每帧 IMU 数据走一拍角度闭环）
  * @param yaw 目标角度(单位:度,范围:-180~180)
  * @retval None
- * @note  转弯结束后等车停稳，把**真残差**记到 yawLastResid 并学习 turnLag。
- *        导航大转角(>YAW_LAG_MIN_TURN)才学；视觉对正那种几度的小修正
- *        残差里噪声占比大，学了反而污染 turnLag。
+ * @note  **纯执行**：只负责把读数转到位，不记录任何残差。
+ *        记录写在 Yaw_TurnRecorded() 里，只给导航转弯用 —— 视觉对正、
+ *        AGV_Correct 恢复原航向这类调用不算"转向"，残差也不该记进去。
  */
 void AGV_SetYaw(float yaw)
 {
-    float turnDelta;
-
     YawPID_Prepare();              /* 自带初始化：不依赖上电时调过 YawPID_Init() */
     yaw = Yaw_Normalize180(yaw);   /* 入口先归一，调用方传什么都安全 */
-    turnDelta = Yaw_Normalize180(yaw - HWT101_GetYaw());   /* 本次转角(带转向符号) */
 
     while(TurnCpltFlag == 0)
     {
@@ -168,20 +167,22 @@ void AGV_SetYaw(float yaw)
         AGV_SetOmega(omega);
     }
     TurnCpltFlag = 0;
+}
 
-    /* ---- 停稳采样：StopNow 后车轮还要滑几十 ms，完成拍的读数不是真残差 ---- */
-    yawLastResid = Yaw_Normalize180(Yaw_WaitSettled() - yaw);
+/**
+ * @brief 转到目标角**并记录本次停位残差**（只有导航转弯走这里）
+ * @param target 目标航向(°)
+ * @note  记录的是**停稳后**的读数差，不是完成拍的值：StopNow 发出后车轮
+ *        还要滑几十 ms，完成拍那个数不是真残差。Yaw_WaitSettled() 最多等
+ *        15 拍(150ms)，IMU 掉线时自旋耗尽也返回，不卡死。
+ *        yawLastResid = 停稳读数 − 目标：正 = 转多了，负 = 少转了。
+ */
+static void Yaw_TurnRecorded(float target)
+{
+    float t = Yaw_Normalize180(target);
 
-    /* ---- 学停位残差：lag = −转向×残差，停早为正(与转向无关的机器属性) ---- */
-    if(turnDelta > YAW_LAG_MIN_TURN || turnDelta < -YAW_LAG_MIN_TURN)
-    {
-        float lag = ((turnDelta >= 0.0f) ? -1.0f : 1.0f) * yawLastResid;
-        if(lag > -YAW_LAG_LIMIT && lag < YAW_LAG_LIMIT)
-        {
-            turnLag = YAW_LAG_GAIN*lag + (1.0f - YAW_LAG_GAIN)*turnLag;
-        }
-        /* 超限(打滑/被撞)不学，保住已学的值 */
-    }
+    AGV_SetYaw(t);
+    yawLastResid = Yaw_Normalize180(Yaw_WaitSettled() - t);
 }
 
 /**
@@ -229,8 +230,8 @@ static float Yaw_WaitSettled(void)
  * @retval None
  * @note  给"半度级"前馈补偿用（例：粗加工区低位对正后的固定 0.5° 补角）。
  *        和 AGV_SetYaw 的分工：
- *          - 不学 turnLag、不改 yawNominal —— 想让它进名义基准由调用方 Yaw_NominalSync()；
- *          - 不写 yawLastResid —— 那仍是"上次 AGV_SetYaw 的停稳残差"；
+ *          - 不写 yawLastResid / movingDelta —— 它是**有意**改航向，不是误差，
+ *            不能当成"上次残差"或"行进偏差"记进下一次转弯的修正里；
  *          - 小误差也有速度（YAW_TRIM_OMEGA_MIN），超时必定退出并停车。
  *        退出前一定 AGV_StopNow，所以调用返回时车是停住的。
  *        ⚠ 转向正负跟 AGV_SetYaw 一致；实车方向反了就让调用方传负值。
@@ -273,48 +274,52 @@ void AGV_TrimYaw(float delta_deg)
     AGV_StopNow();                      /* 到位/超时都停住，绝不带着速度返回 */
 }
 
+/* ---- 导航转弯：目标从"当前读数"算起 ----
+   target = 当前读数 + 转向×90/180 − 上次停位残差 − 本段行进偏差
+   两个减法各管一段误差，都是记录值直接用，没有学习/门限/滤波：
+     残差     上次导航转弯停稳后比目标多转(正)或少转(负)了多少 —— 这次补回来；
+     行进偏差 上一段直行/平移期间读数变了多少 —— 车本来该保持航向，这次反着补。
+   目标从当前读数算起 ⇒ 读数里的恒定零偏在相减中抵消，零漂不会被转成真实转动。 */
+
 /**
  * @brief 左转 90°
- * @note  目标 = 名义角 + (90 + turnLag)。**当前读数不进目标**——
- *        行进偏差/陀螺漂移/摆车误差全在「读数−名义角」里，瞄准名义角即一次性修掉。
- *        turnLag(停早为正)让停稳后正好落回名义角。
+ * @note  target = 当前读数 + 90 − yawLastResid − movingDelta
  * @retval None
  * @author Fawziya
  * @date 2026-08-18
  */
 void AGV_TurnLeft(void)
 {
-    yawNominal = Yaw_Normalize180(yawNominal + (90.0f + turnLag));
-    AGV_SetYaw(yawNominal);
+    Yaw_TurnRecorded(HWT101_GetYaw() + 90.0f - yawLastResid - movingDelta);
     AGV_Direction = (AGV_Direction+1)%4;
-    movingDelta = 0.0f;   /* 行进偏差已随本次瞄准修掉，重新累计下一段 */
+    movingDelta = 0.0f;   /* 本段行进偏差已补掉，重新累计下一段 */
 }
 
 /**
  * @brief 右转 90°
- * @note  同 TurnLeft，方向取反：−(90 + turnLag)。
+ * @note  target = 当前读数 − 90 − yawLastResid − movingDelta
+ *        残差/行进偏差两项与转向无关：负残差=少转，任何方向都要多转回同样的量。
  * @retval None
  * @author Fawziya
  * @date 2026-08-18
  */
 void AGV_TurnRight(void)
 {
-    yawNominal = Yaw_Normalize180(yawNominal - (90.0f + turnLag));
-    AGV_SetYaw(yawNominal);
+    Yaw_TurnRecorded(HWT101_GetYaw() - 90.0f - yawLastResid - movingDelta);
     AGV_Direction = (AGV_Direction+3)%4;
     movingDelta = 0.0f;
 }
 
 /**
  * @brief 掉头 180°
- * @note  与 TurnLeft 同向(+180)。turnLag 直接复用 90° 学到的值：
- *        末段逼近的动力学只由误差决定，与总转角无关。
+ * @note  target = 当前读数 + 180 − yawLastResid − movingDelta。
+ *        残差复用上一次导航转弯的记录值：末段逼近的动力学只由误差决定，
+ *        180° 和 90° 的停位偏差是同一个量级。
  * @retval None
  */
 void AGV_TurnBack(void)
 {
-    yawNominal = Yaw_Normalize180(yawNominal + (180.0f + turnLag));
-    AGV_SetYaw(yawNominal);
+    Yaw_TurnRecorded(HWT101_GetYaw() + 180.0f - yawLastResid - movingDelta);
     AGV_Direction = (AGV_Direction+2)%4;
     movingDelta = 0.0f;
 }
@@ -343,25 +348,24 @@ void AGV_Turn(uint8_t dir)
 }
 
 /**
- * @brief 把当前实际航向设为新的名义基准
- * @note  视觉对正/人工挪车后必须调——对正是"有意"改航向，不调的话下一次转弯
- *        会把车拧回旧的名义角，对正成果被抹掉。上电 AGV_Init() 里也调一次
- *        (HWT101_Init 之后)：摆好车，当前朝向即基准。
- *        AGV_Correct() 不用调：它末尾 AGV_SetYaw(temp_yaw) 恢复原航向。
+ * @brief 清空"已记录的行进偏差"
+ * @note  只该在**航向被绝对对正**之后调（例：视觉 0x06 闭环把车对到圆环上）：
+ *        对正完成后车已经在正确朝向上，之前记下的行进偏差就不该再到下次转弯里补。
+ *        平时不用调 —— 转弯自己会把它清零。
+ *        不碰 yawLastResid：停位残差是机械属性，跟对正无关。
  * @retval None
  */
-void Yaw_NominalSync(void)
+void Yaw_ClearMovingDelta(void)
 {
-    yawNominal = HWT101_GetYaw();
     movingDelta = 0.0f;
 }
 
 /*
  * @brief 开始记录行进偏差(AGV_Position_GoStraight/Translate 内部成对调用)
- * @note  平移/直行理论上不改变航向：期间读数变化 = 真实跑偏 + 陀螺漂移。
- *        新框架里它**不进转弯目标**——行进偏差随"瞄准名义角"被自动修掉，
- *        这里只作观测量：watch Yaw_GetMovingDelta() 看每段直行的航向稳定性，
- *        数值持续偏大说明打滑/配重问题(机械)，控制层修不了根因。
+ * @note  直行/平移理论上不改变航向，期间读数变化 = 真实跑偏 + 陀螺漂移。
+ *        这段差值**会进下一次转弯的修正**（AGV_TurnXxx 里减掉），
+ *        所以它不再是只读观测量；watch Yaw_GetMovingDelta() 看每段跑偏多少。
+ *        清零点：每次导航转弯之后、Yaw_ClearMovingDelta()。
  */
 void Yaw_MovingOffsetStart(void)
 {
@@ -377,8 +381,6 @@ void Yaw_MovingOffsetEnd(void)
 }
 
 /* ---- 观测口：debugger watch / OLED / 上位机 ---- */
-float Yaw_GetNominal(void)     { return yawNominal;   }
-float Yaw_GetTurnLag(void)     { return turnLag;      }
 float Yaw_GetLastResid(void)   { return yawLastResid; }
 float Yaw_GetMovingDelta(void) { return movingDelta;  }
 
