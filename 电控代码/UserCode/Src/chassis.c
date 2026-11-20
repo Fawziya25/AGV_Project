@@ -542,7 +542,7 @@ void AGV_Position_Qcode_to_Raw()
 	}
 	else if(Raw_Offset_L < 0)
 	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 0);
+		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
 	}
 }
 
@@ -555,7 +555,7 @@ void AGV_Position_Raw_to_Rough()
 	}
 	else if(Raw_Offset_L < 0)
 	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
+		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 1);
 	}
 	AGV_Position_Cruise(2, 2);
 	AGV_Position_Translate(Rough_Approaching_L, Vel, 0);
@@ -572,6 +572,14 @@ void AGV_Position_Temp_to_Raw()
 {
 	AGV_Position_Translate(Temp_Approaching_L, Vel, 1);
 	AGV_Position_Cruise(4, 0);
+	if(Raw_Offset_L > 0)
+	{
+		AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
+	}
+	else if(Raw_Offset_L < 0)
+	{
+		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
+	}
 	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
 }
 
@@ -614,7 +622,7 @@ void AGV_Position_Qcode_to_Raw()
 	}
 	else if(Raw_Offset_L < 0)
 	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 0);
+		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
 	}
 	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
 }
@@ -628,7 +636,7 @@ void AGV_Position_Raw_to_Rough()
 	}
 	else if(Raw_Offset_L < 0)
 	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
+		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 1);
 	}
 	AGV_TurnRight();
 	AGV_Position_Go(Points_X[10], Points_Y[10], 0);
@@ -657,7 +665,7 @@ void AGV_Position_Temp_to_Raw()
 	}
 	else if(Raw_Offset_L < 0)
 	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 0);
+		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
 	}
 	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
 }
