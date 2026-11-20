@@ -504,6 +504,7 @@ static void Test_WaitStartKey(void)
 
 static void Test_AGV(void)
 {
+    Test_WaitStartKey();
 #if Run_With_Radar
     uint8_t zone = Radar_GetZone();      /* 入口页 C6 选的启停区（下面 Radar_Init 会冲掉，先存） */
 
@@ -532,32 +533,29 @@ static void Test_AGV(void)
     AGV_Position_Raw_to_Rough();   HAL_Delay(3000);
     AGV_Position_Rough_to_Temp();  HAL_Delay(3000);
     AGV_Position_Temp_to_Raw();    HAL_Delay(3000);
-    AGV_Position_Raw_to_Rough();   HAL_Delay(3000);
-    AGV_Position_Rough_to_Temp();  HAL_Delay(3000);
-    AGV_Position_GoBack();
+    // AGV_Position_Raw_to_Rough();   HAL_Delay(3000);
+    // AGV_Position_Rough_to_Temp();  HAL_Delay(3000);
+    // AGV_Position_GoBack();
 }
 
 /* ========================== 2 视觉修正测试 ==========================*/
 
-static void Test_Correct(void)
+static void Test_Pick_Raw(void)
 {
-    Cam_Init();           /* 等待相机启动，5秒超时，成功后oled显示参数，失败则不显示*/
-    HWT101_Init(&huart5); /* 初始化HWT101 */
-
-    Cam_SwitchTo(02);             /* 发 0x02 拿偏差，落到全局 dx/dy */
-    AGV_Correct(20000);           /* 闭环到对准或 20s 超时，退出时自动停车 */
+    Cam_Init();
+    Pick_Init();
+    HWT101_Init(&huart5);
+    QRcode_Task();
+    Pick_RAW_PLUS_FAST();
 }
 
-static void Test_Turn(void)
+static void Test_Place_Ring(void)
 {
-    HWT101_Init(&huart5);   /* 陀螺仪 + 零偏标定；转弯全靠它，CAN 由 Test_Switch 起好 */
-
-    for(;;)
-    {
-        AGV_TurnLeft();     /* +90°：内部阻塞到对准并停车才返回 */
-        AGV_TurnRight();    /* -90°：转回原朝向 */
-        HAL_Delay(3000);    /* 歇 3s；DBG_ENABLE=1 时这句里也在刷屏、C8 也能暂停 */
-    }
+    Cam_Init();
+    Pick_Init();
+    HWT101_Init(&huart5);
+    QRcode_Task();
+    Pick_RAW_PLUS_FAST();
 }
 
 
@@ -645,7 +643,7 @@ static void Test_Pick_Task(void)
    
 // //     //Pick_RAW();
 // //     //Pick_RAW_PLUS();
-// //     Pick_RAW_PLUS_FAST();
+
     // //Place_Correct_High(); Place_Correct_Angle(); Place_Correct_Low();/*粗调+角度*/
     //         // Place_Correct_Low();
     //         // Place_ROUGH();
@@ -986,12 +984,12 @@ void Test_Switch(void)
     Radar_Init();
 
     //Test_WaitStartKey();
-    Pick_Axis_Init();
-    switch(6)
+    //Pick_Axis_Init();
+    switch(1)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
-        case 2:  Test_Correct();     break;  //夹爪到观察位置 发送0x02 位置修正
-        case 3:  Test_Turn();        break;  //转向PID：左转90/右转90往复，增益在 yawPIDcontroller.h 的 KP/KI/KD
+        case 2:  Test_Pick_Raw();    break;  //原料取放测试
+        case 3:  Test_Place_Ring();        break;  //圆环放置测试
         case 4:  Menu_end(12U, 12U);break;//不用
         case 5:  Test_Pick_POS_Test();  break; // 无视觉的夹爪位置调试
         case 6:  Test_Pick_Task();    break;//

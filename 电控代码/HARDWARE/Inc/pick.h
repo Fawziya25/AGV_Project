@@ -30,9 +30,9 @@
 #define POS_OBSERVE_RAW_CENTER (180.0f + POS_CORR_ANG,  8.0f + POS_CORR_Z,   95.0f + POS_CORR_R )   // pick_plus时候的观察位置
 
 
-#define POS_RAW_A_APPROACH    (195.0f + POS_CORR_ANG, 52.0f + POS_CORR_Z,  157.0f + POS_CORR_R )   // POS_RAW_A 上方 30mm
-#define POS_RAW_B_APPROACH    (180.0f + POS_CORR_ANG, 53.0f + POS_CORR_Z,    2.0f + POS_CORR_R )   // POS_RAW_B 上方 30mm
-#define POS_RAW_C_APPROACH    (167.0f + POS_CORR_ANG, 50.0f + POS_CORR_Z,  157.0f + POS_CORR_R )   // POS_RAW_C 上方 30mm
+#define POS_RAW_A_APPROACH    (195.0f + POS_CORR_ANG, 42.0f + POS_CORR_Z,  157.0f + POS_CORR_R )   // POS_RAW_A 上方 30mm
+#define POS_RAW_B_APPROACH    (180.0f + POS_CORR_ANG, 43.0f + POS_CORR_Z,    2.0f + POS_CORR_R )   // POS_RAW_B 上方 30mm
+#define POS_RAW_C_APPROACH    (167.0f + POS_CORR_ANG, 40.0f + POS_CORR_Z,  159.0f + POS_CORR_R )   // POS_RAW_C 上方 30mm
 
 //====================== 圆环放置位置 =====================
 #define POS_1                  (225.0f + POS_CORR_ANG, 165.5f + POS_CORR_Z,   74.0f + POS_CORR_R )   // 圆环左边 (XYZ均 -1.5)
