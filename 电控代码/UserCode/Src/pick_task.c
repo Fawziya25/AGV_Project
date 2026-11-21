@@ -892,7 +892,43 @@ void Pick_Correct_TEMP(void)
         slot++;
     }
 
-    /* ---- 4) 收尾：还没抓的按已识别的位置补抓 ---- */
+    /* ---- 3.5) 保底校验：三个位置的颜色必须正好是任务码三色、各一次。
+            识别错一个会出现"重复"或"缺失"——这时不信这套映射，剩下没抓的
+            按 1→2→3 默认抓，保证三块都上车。 ---- */
+    {
+        uint8_t map_ok = 1U;
+
+        for(i = 0U; i < 3U; i++)
+        {
+            uint8_t cnt = 0U;
+
+            for(uint8_t k = 0U; k < 3U; k++)
+            {
+                if(posColor[k] == Pick_Color[i])
+                {
+                    cnt++;
+                }
+            }
+            if(cnt != 1U)                   /* 0=漏识别；>1=同一色认到两个位置 */
+            {
+                map_ok = 0U;
+                break;
+            }
+        }
+
+        if(map_ok == 0U)
+        {
+            for(i = 0U; i < 3U; i++)
+            {
+                if(posGrabbed[i] == 0U)
+                {
+                    posColor[i] = 0U;       /* 丢掉不可信映射 */
+                }
+            }
+        }
+    }
+
+    /* ---- 4) 收尾：还没抓的按已识别的位置补抓；映射不可信时按 1→2→3 默认 ---- */
     while(slot < 3U)
     {
         p = 0U;

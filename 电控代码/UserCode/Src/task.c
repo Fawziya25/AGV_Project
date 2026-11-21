@@ -118,26 +118,25 @@ void TaskProc(void)
             TaskCode = Move3;
             break;
         case Move3:
-
             TaskCode = Place2;
             break;
 //===================================到达暂存区==================================
         case Place2:
-            if(RerunFlag == 0) 
-            {
-                AGV_TrimYaw(-0.4f);
-                Place_RAW();
-            }
-            else 
-            {
-                Place_RAW();
-            }
+            // if(RerunFlag == 0) 
+            // {
+            //     AGV_TrimYaw(-0.4f);
+            //     Place_RAW();
+            // }
+            // else 
+            // {
+            //     Place_RAW();
+            // }
             TaskCode = (RerunFlag == 0) ? Move4 : GoBack;
             RerunFlag = 1;
             break;
 //====================================二周目====================================
         case Move4:
-
+             AGV_Position_Jingjiagong_to_Temp();
             TaskCode = Pick1;
             break;
 //====================================回到原点=================================== 

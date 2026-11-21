@@ -531,8 +531,7 @@ static void Test_AGV(void)
     AGV_Position_Depart();       HAL_Delay(3000);
     AGV_Position_Qcode_to_Temp();   HAL_Delay(3000);
     AGV_Position_Temp_to_Jingjiagong();   HAL_Delay(3000);
-    AGV_Position_Jingjiagong_to_Chengpin();  HAL_Delay(3000);
-    AGV_Position_Chengpin_to_Temp();    HAL_Delay(3000);
+
     
     // AGV_Position_Raw_to_Rough();   HAL_Delay(3000);
     // AGV_Position_Rough_to_Temp();  HAL_Delay(3000);
