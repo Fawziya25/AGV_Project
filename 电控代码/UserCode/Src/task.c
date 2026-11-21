@@ -118,7 +118,7 @@ void TaskProc(void)
             TaskCode = Move3;
             break;
         case Move3:
-            AGV_Position_Jingjiagong_to_Chengpin();
+
             TaskCode = Place2;
             break;
 //===================================到达暂存区==================================
@@ -138,7 +138,7 @@ void TaskProc(void)
             break;
 //====================================二周目====================================
         case Move4:
-            AGV_Position_Chengpin_to_Temp();
+
             TaskCode = Pick1;
             break;
 //====================================回到原点=================================== 

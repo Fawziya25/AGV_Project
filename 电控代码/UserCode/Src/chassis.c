@@ -466,33 +466,43 @@ static uint8_t AGV_SelectLegPoints(uint8_t leg, uint8_t *out, uint8_t maxOut)
     return 0U;
 }
 
-void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
+/**
+ * @brief 按方格序列走（不含段末转身）：每个点前按主导轴决定要不要先转 90°
+ * @param cells  方格编号数组（行驶顺序）
+ * @param n      点数
+ * @param tarDir 本段走完后的最终朝向，用来在"两个候选方向"里选更接近的那个
+ * @note  这段逻辑与原来 AGV_Position_Cruise() 里的循环完全一致，只是抽出来给
+ *        正向/反向两个入口共用。
+ */
+static void AGV_FollowCells(const uint8_t *cells, uint8_t n, uint8_t tarDir, uint8_t faceMotion)
 {
-    uint8_t  pts[RADAR_PATH_MAX_POINTS];
-    uint8_t  n, i;
-
-    /* tarDir = 该段走完后的绝对朝向：0:X+ 1:Y+ 2:X- 3:Y-。
-       先归一化（4 当 0）：旧写法传 4 会一路传到 AGV_Turn()，而它只认 0~3，
-       非法值在那里会落到"没有任何分支命中" → 该转的时候不转。 */
-    tarDir &= 3U;
-
-    if(RouteID >= RADAR_LEG_COUNT) return;
-
-    /* ★ 默认路径优先：规划失败 → 默认；规划成功且默认可用 → 默认；默认不可用 → 规划。
-       详见上面 AGV_SelectLegPoints() 的规则说明。 */
-    n = AGV_SelectLegPoints(RouteID, pts, (uint8_t)sizeof(pts));
-    if(n == 0U) return;
+    uint8_t i;
 
     for(i = 0U; i < n; i++)
     {
-        uint8_t  cell = pts[i];
+        uint8_t  cell = cells[i];
         uint16_t tarX, tarY;
 
         if(cell > 24U) continue;
         tarX = Points_X[cell];
         tarY = Points_Y[cell];
 
-        if(abs(tarX - AGV_Position_X) >= abs(tarY - AGV_Position_Y))
+        if(faceMotion != 0U)
+        {
+            /* faceMotion=1：按"这一段的运动方向"决定车头（反向路线用，保证始终正向行驶）。
+               正常正向巡航仍走下面的原逻辑，行为不变。 */
+            uint8_t want;
+            if(abs(tarX - AGV_Position_X) >= abs(tarY - AGV_Position_Y))
+            {
+                want = ((int32_t)tarX >= (int32_t)AGV_Position_X) ? 0U : 2U;
+            }
+            else
+            {
+                want = ((int32_t)tarY >= (int32_t)AGV_Position_Y) ? 1U : 3U;
+            }
+            if(AGV_Direction != want) AGV_Turn(want);
+        }
+        else if(abs(tarX - AGV_Position_X) >= abs(tarY - AGV_Position_Y))
         {
             if(AGV_Direction == 1 || AGV_Direction == 3)
             {
@@ -512,7 +522,66 @@ void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
         }
         AGV_Position_Go(tarX, tarY, 0);
     }
-    if(RouteID != 5) AGV_Turn(tarDir);
+}
+
+void AGV_Position_Cruise(uint8_t RouteID, uint8_t tarDir)
+{
+    uint8_t pts[RADAR_PATH_MAX_POINTS];
+    uint8_t n;
+
+    /* tarDir = 该段走完后的绝对朝向：0:X+ 1:Y+ 2:X- 3:Y-。
+       先归一化（4 当 0）：旧写法传 4 会一路传到 AGV_Turn()，而它只认 0~3，
+       非法值在那里会落到"没有任何分支命中" → 该转的时候不转。 */
+    tarDir &= 3U;
+
+    if(RouteID >= RADAR_LEG_COUNT) return;
+
+    /* ★ 默认路径优先：规划失败 → 默认；规划成功且默认可用 → 默认；默认不可用 → 规划。
+       详见上面 AGV_SelectLegPoints() 的规则说明。 */
+    n = AGV_SelectLegPoints(RouteID, pts, (uint8_t)sizeof(pts));
+    if(n == 0U) return;
+
+    AGV_FollowCells(pts, n, tarDir, 0U);      /* 按点走（转/直行逻辑原样） */
+    if(RouteID != 5) AGV_Turn(tarDir);        /* 段末精确到达后原地转到目标朝向 */
+}
+
+/**
+ * @brief 暂存区 → 粗加工区（第 4 段的反向），段末朝向 X-(2)
+ * @note  函数名沿用需求里给的名字；实际走向 = 22(暂存) → 20 → 10(粗加工)，
+ *        与 AGV_Position_Cruise(3, 1) 的路径**完全反向**。
+ *        路径点同样先走 AGV_SelectLegPoints(3)（默认优先 / 规划兜底）再反向遍历，
+ *        末尾补上本段起点格（第 4 段起点 = 10），所以终点就是粗加工区。
+ */
+void AGV_Position_Cruise_Jingjiagong_to_Temp(void)
+{
+    uint8_t pts[RADAR_PATH_MAX_POINTS];
+    uint8_t rev[RADAR_PATH_MAX_POINTS];
+    uint8_t n, i, rn = 0U;
+
+    n = AGV_SelectLegPoints(3U, pts, (uint8_t)sizeof(pts));
+    if(n == 0U) return;                                   /* 没选到路径：不动 */
+
+    for(i = n; i > 0U; i--)                               /* 拐点/终点反向 */
+    {
+        if(rn < (uint8_t)sizeof(rev)) rev[rn++] = pts[i - 1U];
+    }
+    if(rn < (uint8_t)sizeof(rev))                         /* 最后一个点 = 本段起点格(10) */
+    {
+        rev[rn++] = AGV_LegStartCell(3U);
+    }
+
+    /* 第一个反向后点就是车现在所在的格（第 4 段终点 22）时跳过它：
+       否则会先"原地转一次再走 0 距离"，白转两次 90°。 */
+    if((rn > 0U) && (rev[0] <= 24U)
+       && (Points_X[rev[0]] == AGV_Position_X) && (Points_Y[rev[0]] == AGV_Position_Y))
+    {
+        for(i = 0U; (uint8_t)(i + 1U) < rn; i++) rev[i] = rev[i + 1U];
+        rn--;
+    }
+    if(rn == 0U) { AGV_Turn(2U); return; }
+
+    AGV_FollowCells(rev, rn, 2U, 1U);                     /* faceMotion=1：按运动方向定车头，正向行驶 */
+    AGV_Turn(2U);                                         /* 目标航向 X- */
 }
 
 #if Run_With_Radar
@@ -581,35 +650,16 @@ void AGV_Position_Temp_to_Jingjiagong()
 	AGV_Position_Translate(Jingjiagong_Approaching_L, Vel, 0);
 }
 
-void AGV_Position_Jingjiagong_to_Chengpin()
+/* 22(精加工/暂存区) -> 14(成品区)：函数体本来就是 22->14，
+   原名写的是 _to_Temp，与 task.c 的 _to_Chengpin 调用不一致，改名对齐。 */
+void AGV_Position_Jingjiagong_to_Temp()
 {
 	// AGV_Position_Translate(Rough_Approaching_L, Vel, 1);
 	// AGV_Position_Cruise(3, 1);
 	// AGV_Position_Translate(Temp_Approaching_L, Vel, 0);
 
     AGV_Position_Translate(Jingjiagong_Approaching_L, Vel, 1);
-	AGV_Position_Cruise(4, 3);
-	AGV_Position_Translate(Chengpin_Approaching_L, Vel, 0);
-}
-
-void AGV_Position_Chengpin_to_Temp()
-{
-	
-	// AGV_Position_Cruise(4, 0);
-	// if(Raw_Offset_L > 0)
-	// {
-	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
-	// }
-	// else if(Raw_Offset_L < 0)
-	// {
-	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
-	// }
-	// AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
-
-	AGV_Position_Translate(Chengpin_Approaching_L, Vel, 1);
-	AGV_Position_Go(Points_X[0], Points_Y[0], 0);
-	AGV_TurnRight();
-	AGV_Position_Go(Points_X[10], Points_Y[10], 0);
+	AGV_Position_Cruise_Jingjiagong_to_Temp();
 	AGV_Position_Translate(Temp_Approaching_L, Vel, 0);
 }
 
@@ -623,17 +673,9 @@ void AGV_Position_GoBack()
 	uint16_t ox = (AGV_Zone == 1U) ? (uint16_t)AGV_ZONE1_ORIGIN_X : (uint16_t)AGV_ZONE2_ORIGIN_X;
 	uint16_t oy = (AGV_Zone == 1U) ? (uint16_t)AGV_ZONE1_ORIGIN_Y : (uint16_t)AGV_ZONE2_ORIGIN_Y;
 
-	AGV_Position_Translate(Chengpin_Approaching_L, Vel, 1);
-	if(AGV_Zone == 1U)
-	{
-		AGV_Position_Go(Points_X[4], Points_Y[4], 0);
-		AGV_Position_Go(ox, oy, 0);
-	}
-	else if(AGV_Zone == 2U)
-	{
-		AGV_Position_Go(Points_X[0], Points_Y[0], 0);
-		AGV_Position_Go(ox, oy, 0);
-	}
+	AGV_Position_Translate(Jingjiagong_Approaching_L, Vel, 1);
+	AGV_Position_Cruise(5, 3);
+	AGV_Position_Go(ox, oy, 0);
 }
 
 #else
@@ -646,66 +688,50 @@ void AGV_Position_GoBack()
  */
 void AGV_Position_Depart()
 {
-	AGV_Position_Go(Points_X[2], Points_Y[2], 0);
+	uint8_t g = (AGV_Zone == 1U) ? (uint8_t)AGV_ZONE1_DEPART_GRID
+	                             : (uint8_t)AGV_ZONE2_DEPART_GRID;
+
+	AGV_Position_Go(Points_X[g], Points_Y[g], 0);
+
+	if(AGV_Zone == 1U)
+	{
+		AGV_TurnLeft();
+		AGV_Position_Go(Points_X[14], Points_Y[14], 0);
+	}
+	else if(AGV_Zone == 2U)
+	{
+		AGV_Position_Go(Points_X[4], Points_Y[4], 0);
+		AGV_TurnLeft();
+		AGV_Position_Go(Points_X[14], Points_Y[14], 0);
+	}
 }
 
-void AGV_Position_Qcode_to_Raw()
+void AGV_Position_Qcode_to_Temp()
 {
-	AGV_Position_Go(Points_X[4], Points_Y[4], 0);
+	AGV_Position_Go(Points_X[24], Points_Y[24], 0);
 	AGV_TurnLeft();
-	AGV_Position_Go(Points_X[14], Points_Y[14], 0);
-	// if(Raw_Offset_L > 0)
-	// {
-	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
-	// }
-	// else if(Raw_Offset_L < 0)
-	// {
-	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
-	// }
-	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
-}
-
-void AGV_Position_Raw_to_Rough()
-{
-	AGV_Position_Translate(Raw_Approaching_L, Vel, 1);
-	// if(Raw_Offset_L > 0)
-	// {
-	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 0);
-	// }
-	// else if(Raw_Offset_L < 0)
-	// {
-	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 1);
-	// }
-	AGV_TurnRight();
-	AGV_Position_Go(Points_X[10], Points_Y[10], 0);
-	AGV_TurnRight();
-	AGV_Position_Translate(Rough_Approaching_L, Vel, 0);
-}
-
-void AGV_Position_Rough_to_Temp()
-{
-	AGV_Position_Translate(Rough_Approaching_L, Vel, 1);
 	AGV_Position_Go(Points_X[20], Points_Y[20], 0);
-    AGV_TurnRight();
-	AGV_Position_Go(Points_X[22], Points_Y[22], 0);
+	AGV_TurnLeft();
+	AGV_Position_Go(Points_X[10], Points_Y[10], 0);
 	AGV_Position_Translate(Temp_Approaching_L, Vel, 0);
 }
 
-void AGV_Position_Temp_to_Raw()
+void AGV_Position_Temp_to_Jingjiagong()
 {
 	AGV_Position_Translate(Temp_Approaching_L, Vel, 1);
-	AGV_Position_Go(Points_X[24], Points_Y[24], 0);
-    AGV_TurnRight();
-	AGV_Position_Go(Points_X[14], Points_Y[14], 0);
-	// if(Raw_Offset_L > 0)
-	// {
-	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
-	// }
-	// else if(Raw_Offset_L < 0)
-	// {
-	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
-	// }
-	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
+	AGV_Position_Go(Points_X[20], Points_Y[20], 0);
+	AGV_TurnRight();
+	AGV_Position_Go(Points_X[22], Points_Y[22], 0);
+	AGV_Position_Translate(Jingjiagong_Approaching_L, Vel, 0);
+}
+
+void AGV_Position_Jingjiagong_to_Temp()
+{
+	AGV_Position_Translate(Jingjiagong_Approaching_L, Vel, 1);
+	AGV_Position_Go(Points_X[20], Points_Y[20], 0);
+    AGV_TurnLeft();
+	AGV_Position_Go(Points_X[10], Points_Y[10], 0);
+	AGV_Position_Translate(Temp_Approaching_L, Vel, 0);
 }
 
 /**
