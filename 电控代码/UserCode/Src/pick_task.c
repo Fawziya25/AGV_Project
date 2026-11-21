@@ -153,12 +153,13 @@ static void PlaceToRing(uint8_t slot, uint8_t ring, uint8_t next_slot, uint8_t h
 /**
  * @brief 暂存区三个位置的颜色识别 + 中间位对正（结果写 Pick_ColorAtPos[]）
  * @note  流程（2026-11-21 新需求）：
- *        1) 摆 POS_OBSERVE_RING_MIDDLE（中间位），开爪；
+ *        1) 摆 POS_2（低位中间位），开爪；
  *           依次对任务码前三位颜色发 0x05，每个最多等 2s；
  *           实际通常只认到 1~2 个颜色 —— 记录 |dx| 最小的那一色作为**位置2**的颜色。
  *        2) 对位置2 的颜色再发一次 0x05，然后跑位置 PID，最多 5s。
- *        3) 摆 POS_1_HIGE，依次发三种颜色（每个 2s），先识别到的就是**位置1**的颜色。
- *        4) 摆 POS_3_HIGE，同样得到**位置3**的颜色。
+ *        3) 摆 POS_1（低位），依次发三种颜色（每个 2s），先识别到的就是**位置1**的颜色。
+ *        4) 摆 POS_3（低位），同样得到**位置3**的颜色。
+ *        （三个位置一律用低位 POS_1/2/3，两轮都一样。）
  *        5) 结果 → Pick_ColorAtPos[0/1/2]（0 = 该位置没识别到）。
  *
  *        ⚠ 位置2 用 |dx| 最小来选：相机在中间观察位时，越靠近画面中心的颜色
@@ -179,7 +180,7 @@ void Pick_Correct(void)
     Pick_ColorAtPos[1] = 0U;
     Pick_ColorAtPos[2] = 0U;
 
-    /* ---- 1) 中间位：三种颜色各问一次，|dx| 最小的就是位置2 ---- */
+    /* ---- 1) 中间位（低位 POS_2）：三种颜色各问一次，|dx| 最小的就是位置2 ---- */
     Pick_JumpTo POS_OBSERVE_RING_MIDDLE;
     Pick_Gripper_Observe();             /* 张开，别挡住相机 */
 
@@ -205,7 +206,7 @@ void Pick_Correct(void)
         AGV_Correct(PICK_CORRECT_PID_TMO_MS);
     }
 
-    /* ---- 3) 位置1：站到 POS_1_HIGE，依次问三种颜色，先识别到的就是它 ---- */
+    /* ---- 3) 位置1（低位 POS_1）：依次问三种颜色，先识别到的就是它 ---- */
     Pick_JumpTo POS_1_HIGE;
     for(i = 0U; i < 3U; i++)
     {
@@ -216,7 +217,7 @@ void Pick_Correct(void)
         }
     }
 
-    /* ---- 4) 位置3：同 POS_3_HIGE ---- */
+    /* ---- 4) 位置3（低位 POS_3）：同位置1 ---- */
     Pick_JumpTo POS_3_HIGE;
     for(i = 0U; i < 3U; i++)
     {
@@ -699,7 +700,7 @@ static uint8_t Pick_PosOfColor(uint8_t color)
  * @brief 暂存区取料（任务2）：按任务码前三位的颜色顺序，去该颜色所在的位置抓
  * @note  前置：Pick_Correct() 已经把三个位置的颜色写进 Pick_ColorAtPos[]。
  *        第 i 个颜色 → 它在暂存区的位置(1/2/3) → 抓起来放进车上第 i 槽。
- *        位置用 POS_x_HIGE（和 Pick_Correct 识别时用的位姿一致）。
+ *        位置用低位 POS_x（和 Pick_Correct 识别时用的位姿一致）。
  *
  *        识别失败的处理：某个颜色没识别到（或算出来的位置和前面重复），就把
  *        三块里还没用过的位置按 1→2→3 补给它 —— 这样中间那块的位置不会被旁边的
@@ -742,7 +743,7 @@ void Pick_TEMP(void)
     /* 严格按任务码顺序抓：第 i 色 → 车上第 i 槽 */
     for(i = 0U; i < 3U; i++)
     {
-        MOVE_TO_RING_HIGH(posOf[i]);
+        MOVE_TO_RING(posOf[i]);         /* 低位 POS_1/2/3（和 Pick_Correct 识别位姿一致） */
         Pick_Gripper_Grab();
         Pick_TurnTable_Set(i);          /* 臂在环位时启动转盘选槽 */
         Pick_JumpTo POS_CAR;

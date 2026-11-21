@@ -108,7 +108,6 @@ void TaskProc(void)
             break;
 //===================================到达粗加工区=================================
         case Place1:
-            
             Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
             Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
             Place_ROUGH();
@@ -131,9 +130,9 @@ void TaskProc(void)
             }
             else 
             {
-                Place_TEMP_Correct();
+                Place_RAW();
             }
-            Place_TEMP();
+            //Place_TEMP();
             TaskCode = (RerunFlag == 0) ? Move4 : GoBack;
             RerunFlag = 1;
             break;
