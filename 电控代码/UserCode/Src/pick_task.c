@@ -610,6 +610,7 @@ void Pick_RAW_PLUS_FAST(void)
     else if(pos[0] == 2U && pos[1] == 3U && pos[2] == 1U) Pick_RAW_BCA_Fast(origin_tick);
     else if(pos[0] == 3U && pos[1] == 1U && pos[2] == 2U) Pick_RAW_CAB_Fast(origin_tick);
     else if(pos[0] == 3U && pos[1] == 2U && pos[2] == 1U) Pick_RAW_CBA_Fast(origin_tick);
+    else Pick_RAW_ABC_Fast(origin_tick);
 
     Pick_JumpTo POS_RUN;
 }

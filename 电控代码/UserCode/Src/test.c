@@ -548,6 +548,7 @@ static void Test_Pick_Raw(void)
     HWT101_Init(&huart5);
     QRcode_Task();
     Pick_RAW_PLUS_FAST();
+    //Pick_RAW();
 }
 
 static void Test_Place_Ring(void)
@@ -986,14 +987,14 @@ void Test_Switch(void)
 
     //Test_WaitStartKey();
     //Pick_Axis_Init();
-    switch(1)
+    switch(2)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Test_Pick_Raw();    break;  //原料取放测试
         case 3:  Test_Place_Ring();        break;  //圆环放置测试
         case 4:  Menu_end(12U, 12U);break;//不用
         case 5:  Test_Pick_POS_Test();  break; // 无视觉的夹爪位置调试
-        case 6:  Test_Pick_Task();    break;//
+        case 6:  Test_Pick_Task();    break;   //
         case 7:  Test_Camera();      break;  //用到视觉的调试
         case 8:  QRcode_Task();       break;  //调用任意的测试函数
         case 9:  Test_Motor();       break;  //臂测试：高度/半径步进电机(0<->30mm往返)或转盘舵机(A/B/C槽)，靠看+尺子验方向和比例(不返回)
