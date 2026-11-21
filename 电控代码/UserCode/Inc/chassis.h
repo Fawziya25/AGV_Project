@@ -69,8 +69,8 @@ extern uint16_t AGV_Position_Y;
 
 #define Raw_Offset_L 0U // 原料区偏移距离 >0 向左偏移，<0 向右偏移，单位mm
 
-#define Raw_Approaching_L 70 // 原料区接近距离
-#define Rough_Approaching_L 50 // 粗加工区接近距离
+#define Chengpin_Approaching_L 70 // 成品区接近距离
+#define Jingjiagong_Approaching_L 50 // 精加工区接近距离
 #define Temp_Approaching_L 50 // 暂存区接近距离
 
 
@@ -86,10 +86,10 @@ void AGV_Position_Init();
 void AGV_Position_Set(uint16_t x, uint16_t y);
 void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir);
 void AGV_Position_Depart();
-void AGV_Position_Qcode_to_Raw();
-void AGV_Position_Raw_to_Rough();
-void AGV_Position_Rough_to_Temp();
-void AGV_Position_Temp_to_Raw();
+void AGV_Position_Qcode_to_Temp();
+void AGV_Position_Temp_to_Jingjiagong();
+void AGV_Position_Jingjiagong_to_Chengpin();
+void AGV_Position_Chengpin_to_Temp();
 void AGV_Position_GoBack();
 
 #endif
