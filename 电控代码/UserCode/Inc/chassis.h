@@ -88,8 +88,10 @@ void AGV_Position_Go(uint16_t x, uint16_t y, uint8_t priDir);
 void AGV_Position_Depart();
 void AGV_Position_Qcode_to_Temp();
 void AGV_Position_Temp_to_Jingjiagong();
-void AGV_Position_Jingjiagong_to_Chengpin();
-void AGV_Position_Chengpin_to_Temp();
+void AGV_Position_Jingjiagong_to_Temp();
 void AGV_Position_GoBack();
+
+/* 22(精加工/暂存区) → 10(粗加工/暂存区)：与 AGV_Position_Cruise(3,1) 反向，段末朝向 X-(2) */
+void AGV_Position_Cruise_Jingjiagong_to_Temp(void);
 
 #endif
