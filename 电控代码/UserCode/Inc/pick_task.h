@@ -51,7 +51,7 @@
 #define GRAB_AND_PLACE_TO_RING_SLOT(slot, ring) \
     do { \
         Pick_TurnTable_Set(slot); \
-        Pick_JumpTo POS_CAR; \
+        Pick_JumpTo POS_CAR_DOWN; \
         Pick_Gripper_Grab(); \
         MOVE_TO_RING(ring); \
         Pick_Gripper_Release(); \
@@ -61,20 +61,24 @@
 #define GRAB_AND_PLACE_TO_RING_SLOT_EX(slot, ring, is_high) \
     do { \
         Pick_TurnTable_Set(slot); \
-        Pick_JumpTo POS_CAR; \
+        Pick_JumpTo POS_CAR_DOWN; \
         Pick_Gripper_Grab(); \
         if (is_high) { MOVE_TO_RING_HIGH(ring); } \
         else { MOVE_TO_RING(ring); } \
         Pick_Gripper_Release(); \
     } while(0)
 
-/** 从圆环抓取并放置到车上 slot 槽 */
+/** 从圆环抓取并放置到车上 slot 槽
+    先保持 release 状态摆到高位(POS_x_HIGE)，到高位后再张开(Observe)，
+    然后下降到低位(POS_x)夹取 —— 下降路径上有料块，张开才不打料。 */
 #define GRAB_FROM_RING_AND_PLACE_SLOT(ring, slot) \
     do { \
-        MOVE_TO_RING(ring); \
+        MOVE_TO_RING_HIGH(ring);    /* 先保持 release 到高位 */ \
+        Pick_Gripper_Observe();     /* 到高位后再张开，准备下降 */ \
+        MOVE_TO_RING(ring);         /* 垂直下降到抓取位 */ \
         Pick_Gripper_Grab(); \
         Pick_TurnTable_Set(slot); \
-        Pick_JumpTo POS_CAR; \
+        Pick_JumpTo POS_CAR_ON; \
         Pick_Gripper_Release(); \
     } while(0)
 
@@ -205,9 +209,21 @@ void Pick_ROUGH(void);
    某色没识别到/位置重复时，用剩下的空位置按 1→2→3 补；中间那块的位置优先保住。 */
 void Pick_TEMP(void);
 
+/* 任务1+2 融合版（2026-11-21）：位置2 识别+PID 后，若是下一个要抓的立即抓走；
+   再到位置1/3，识别到的正好是下一个要抓的也就地抓走；最后补抓剩下的。
+   比"先 Pick_Correct 全部识别、再 Pick_TEMP 从头抓"少两趟往返。 */
+void Pick_Correct_TEMP(void);
+
 /* 车上三槽依次放回原料区（任务3，2026-11-21）：
    slot 0 → POS_RAW_B，slot 1 → POS_RAW_C，slot 2 → POS_RAW_C（按字面，两块都去 C）。 */
 void Place_RAW(void);
+
+/* 把车上三槽的物块依次抓到 POS_THROW 放掉（pick.h 的扔料位）。 */
+void Pick_THROW(void);
+
+/* 直接把地上（本轮 Place_Color[] 指定的环）的物块抓起来丢到 POS_THROW，
+   不经过车上槽。抓取动作同 Pick_ROUGH：高位 → 张开 → 下降 → 夹取。 */
+void Pick_ROUGH_THROW(void);
 
 void Place_TEMP(void);
 /* 暂存区放置前的视觉对正【第二轮】：摆 POS_OBSERVE_RING_MIDDLE → 开爪 → 0x05 指定颜色 → AGV_Correct(5000) → 收爪。

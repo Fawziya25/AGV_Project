@@ -89,17 +89,15 @@ void TaskProc(void)
             TaskCode = Move1;
             break;
         case Move1:
-            AGV_TrimYaw(0.35f);
             AGV_Position_Qcode_to_Temp();
+            AGV_TrimYaw(0.35f);
             TaskCode = Pick1;
             break;
 //===================================到达原料区==================================
         case Pick1:
             Pick_Correct();
-            //Pick_RAW();
-            //Pick_RAW_PLUS(); 
-            //Pick_RAW_PLUS_FAST(); 
             Pick_TEMP();
+            //Pick_Correct_TEMP();
             TaskCode = Move2;
             break;
         case Move2:
@@ -114,7 +112,9 @@ void TaskProc(void)
             TaskCode = Pick2;
             break;
         case Pick2:
-            Pick_ROUGH();
+            Pick_ROUGH();//抓取到车上
+            Pick_THROW();//车上的物块丢掉
+            //Pick_ROUGH_THROW();//直接将地上的物块抓取丢掉
             TaskCode = Move3;
             break;
         case Move3:
@@ -132,7 +132,6 @@ void TaskProc(void)
             {
                 Place_RAW();
             }
-            //Place_TEMP();
             TaskCode = (RerunFlag == 0) ? Move4 : GoBack;
             RerunFlag = 1;
             break;

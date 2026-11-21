@@ -110,7 +110,7 @@ static void GrabRawBoxToCar(uint8_t box, uint8_t slot, uint8_t direct)
     }
     Pick_TurnTable_Set(slot);       /* 启动选槽，非阻塞：转盘后台转 */
     Pick_Gripper_Grab();            /* 夹爪收拢与转盘转动并行 */
-    Pick_JumpTo POS_CAR;            /* 再摆臂（Π 形抬升，耗时远长于换槽） */
+    Pick_JumpTo POS_CAR_ON;              /* 放到车上：用 ON(接近) 位松爪 */
     Pick_Gripper_Release();
 }
 
@@ -133,7 +133,7 @@ static void GrabRawBoxToCar(uint8_t box, uint8_t slot, uint8_t direct)
 static void PlaceToRing(uint8_t slot, uint8_t ring, uint8_t next_slot, uint8_t has_next)
 {
     Pick_TurnTable_Set(slot);       /* 启动选槽，非阻塞 */
-    Pick_JumpTo POS_CAR;            /* 再摆臂 */
+    Pick_JumpTo POS_CAR_DOWN;            /* 再摆臂 */
     Pick_Gripper_Grab();
     MOVE_TO_RING(ring);
     if(has_next)
@@ -147,8 +147,8 @@ static void PlaceToRing(uint8_t slot, uint8_t ring, uint8_t next_slot, uint8_t h
 
 /* ---- 任务1：暂存区三个位置的颜色识别 ----
    每个颜色单独请求一次 0x05，最多等 2s；PID 修正最多 5s。 */
-#define PICK_CORRECT_COLOR_TMO_MS   2000U
-#define PICK_CORRECT_PID_TMO_MS     5000U
+#define PICK_CORRECT_COLOR_TMO_MS   1000U
+#define PICK_CORRECT_PID_TMO_MS     3000U
 
 /**
  * @brief 暂存区三个位置的颜色识别 + 中间位对正（结果写 Pick_ColorAtPos[]）
@@ -317,7 +317,7 @@ static void Raw_PickAt(RawBox box, uint8_t slot)
     }
     Pick_TurnTable_Set(slot);       /* 臂还在原料区时启动转盘选槽 */
     Pick_Gripper_Grab();            /* 与转盘转动并行 */
-    Pick_JumpTo POS_CAR;
+    Pick_JumpTo POS_CAR_ON;         /* 放到车上：用 ON(接近) 位松爪 */
     Pick_Gripper_Release();
 }
 
@@ -740,14 +740,198 @@ void Pick_TEMP(void)
         }
     }
 
-    /* 严格按任务码顺序抓：第 i 色 → 车上第 i 槽 */
+    /* 严格按任务码顺序抓：第 i 色 → 车上第 i 槽。
+       抓之前先摆到高位、夹爪张开，再垂直下降到低位夹取 ——
+       下降路径上有料块，夹爪不开大一点会打到料。 */
     for(i = 0U; i < 3U; i++)
     {
-        MOVE_TO_RING(posOf[i]);         /* 低位 POS_1/2/3（和 Pick_Correct 识别位姿一致） */
+        MOVE_TO_RING_HIGH(posOf[i]);     /* 先保持 release 状态到高位 */
+        Pick_Gripper_Observe();          /* 到高位后再张开，准备下降 */
+        MOVE_TO_RING(posOf[i]);          /* 垂直下降到低位夹取 */
         Pick_Gripper_Grab();
-        Pick_TurnTable_Set(i);          /* 臂在环位时启动转盘选槽 */
-        Pick_JumpTo POS_CAR;
+        Pick_TurnTable_Set(i);           /* 臂在环位时启动转盘选槽 */
+        Pick_JumpTo POS_CAR_ON;          /* 放到车上：用 ON(接近) 位松爪 */
         Pick_Gripper_Release();
+    }
+
+    Pick_JumpTo POS_RUN;
+}
+
+/* ---- 任务1+2 融合：边识别边抓 ----
+   位置2 识别+PID 之后，若它正是下一个要抓的，修完就地抓走；再到位置1、3，
+   识别到的正是下一个要抓的也就地抓走；最后把还没抓的按已识别的位置补抓。
+   比"先全部识别、再从头抓一遍"少走两趟。 */
+
+/* 在位置 pos(1/2/3) 识别颜色：只问"还没抓、也还没被别的已识别位置占用"的任务色
+   （被占用的不在此处，问了只会白等 2s）；每个最多 2s。返回颜色，0=没识别到。 */
+static uint8_t Pick_IdentifyAtPos(uint8_t pos, const uint8_t *pickColor,
+                                  const uint8_t *colorGrabbed,
+                                  const uint8_t *posColor)
+{
+    for(uint8_t i = 0U; i < 3U; i++)
+    {
+        uint8_t c    = pickColor[i];
+        uint8_t skip = 0U;
+
+        if((c == 0U) || (colorGrabbed[i] != 0U))
+        {
+            continue;                       /* 这一色已经抓走了 */
+        }
+
+        for(uint8_t k = 0U; k < 3U; k++)
+        {
+            if(((uint8_t)(k + 1U) != pos) && (posColor[k] == c))
+            {
+                skip = 1U;                  /* 已确认在别的位置上 */
+                break;
+            }
+        }
+        if(skip != 0U)
+        {
+            continue;
+        }
+
+        if(Cam_RequestColorTmo(c, PICK_CORRECT_COLOR_TMO_MS))
+        {
+            return c;
+        }
+    }
+    return 0U;
+}
+
+/* 把当前位置(低位 POS_x)的料抓起，放进车上 slot 槽 */
+static void Pick_GrabHere(uint8_t slot)
+{
+    Pick_Gripper_Grab();
+    Pick_TurnTable_Set(slot);
+    Pick_JumpTo POS_CAR_ON;         /* 放到车上：用 ON(接近) 位松爪 */
+    Pick_Gripper_Release();
+}
+
+/**
+ * @brief 任务1+2 融合版：识别、修正、抓取交替进行，减少往返
+ * @note  顺序：
+ *        1) 高位 → 张开 → 下降到 POS_2；三色各问一次（2s），|dx| 最小的记为位置2；
+ *           对该色再请求一次 + AGV_Correct(5s)；
+ *           **若位置2 就是任务码第 slot 个要抓的，修完就地抓走**；
+ *        2) 高位 → 张开 → 下降到 POS_1，识别；是下一个要抓的就地抓走；
+ *        3) POS_3 同理；
+ *        4) 还有没抓的：按已识别的位置去补抓（识别失败的用剩下的空位默认 1→2→3）。
+ *        每抓一块 → 放车上 slot 槽，slot 按任务码顺序递增。
+ */
+void Pick_Correct_TEMP(void)
+{
+    uint8_t *Pick_Color = Pick_Color_List();
+    uint8_t  posColor[3]     = {0U, 0U, 0U};   /* 位置1/2/3 的颜色 */
+    uint8_t  posGrabbed[3]   = {0U, 0U, 0U};   /* 该位置的料是否已抓走 */
+    uint8_t  colorGrabbed[3] = {0U, 0U, 0U};   /* 任务码第 i 色是否已抓走 */
+    uint8_t  slot = 0U;                        /* 下一个车上槽 = 第几个抓的 */
+    uint8_t  c, p, i;
+    int32_t  best_abs = 0x7FFFFFFF;
+    uint8_t  best_c   = 0U;
+
+    /* ---- 1) 位置2：三色识别(|dx|最小) + PID，若是下一个要抓的就地抓 ---- */
+    MOVE_TO_RING_HIGH(2);
+    Pick_Gripper_Observe();
+    MOVE_TO_RING(2);
+
+    for(i = 0U; i < 3U; i++)
+    {
+        if(Cam_RequestColorTmo(Pick_Color[i], PICK_CORRECT_COLOR_TMO_MS))
+        {
+            int32_t ad = (dx < 0) ? -(int32_t)dx : (int32_t)dx;
+
+            if(ad < best_abs)
+            {
+                best_abs = ad;
+                best_c   = Pick_Color[i];
+            }
+        }
+    }
+    posColor[1] = best_c;
+
+    if((best_c != 0U) &&
+       Cam_RequestColorTmo(best_c, PICK_CORRECT_COLOR_TMO_MS))
+    {
+        AGV_Correct(PICK_CORRECT_PID_TMO_MS);
+    }
+
+    if((best_c != 0U) && (slot < 3U) && (best_c == Pick_Color[slot]))
+    {
+        Pick_GrabHere(slot);                    /* 已在低位、夹爪张开，直接抓 */
+        posGrabbed[1]      = 1U;
+        colorGrabbed[slot] = 1U;
+        slot++;
+    }
+
+    /* ---- 2) 位置1：识别，是下一个要抓的就地抓 ---- */
+    MOVE_TO_RING_HIGH(1);
+    Pick_Gripper_Observe();
+    MOVE_TO_RING(1);
+    c = Pick_IdentifyAtPos(1U, Pick_Color, colorGrabbed, posColor);
+    posColor[0] = c;
+    if((c != 0U) && (slot < 3U) && (c == Pick_Color[slot]))
+    {
+        Pick_GrabHere(slot);
+        posGrabbed[0]      = 1U;
+        colorGrabbed[slot] = 1U;
+        slot++;
+    }
+
+    /* ---- 3) 位置3：同上 ---- */
+    MOVE_TO_RING_HIGH(3);
+    Pick_Gripper_Observe();
+    MOVE_TO_RING(3);
+    c = Pick_IdentifyAtPos(3U, Pick_Color, colorGrabbed, posColor);
+    posColor[2] = c;
+    if((c != 0U) && (slot < 3U) && (c == Pick_Color[slot]))
+    {
+        Pick_GrabHere(slot);
+        posGrabbed[2]      = 1U;
+        colorGrabbed[slot] = 1U;
+        slot++;
+    }
+
+    /* ---- 4) 收尾：还没抓的按已识别的位置补抓 ---- */
+    while(slot < 3U)
+    {
+        p = 0U;
+        for(i = 0U; i < 3U; i++)
+        {
+            if((posColor[i] == Pick_Color[slot]) && (posGrabbed[i] == 0U))
+            {
+                p = (uint8_t)(i + 1U);
+                break;
+            }
+        }
+        if(p == 0U)
+        {
+            for(i = 0U; i < 3U; i++)            /* 没识别到：用剩下的空位 */
+            {
+                if(posGrabbed[i] == 0U)
+                {
+                    p = (uint8_t)(i + 1U);
+                    break;
+                }
+            }
+        }
+        if(p == 0U)
+        {
+            break;                              /* 三块都已抓走，正常不会到这 */
+        }
+
+        MOVE_TO_RING_HIGH(p);
+        Pick_Gripper_Observe();
+        MOVE_TO_RING(p);
+        Pick_GrabHere(slot);
+        posGrabbed[p - 1U] = 1U;
+        colorGrabbed[slot] = 1U;
+        slot++;
+    }
+
+    for(i = 0U; i < 3U; i++)
+    {
+        Pick_ColorAtPos[i] = posColor[i];       /* 同步给全局，和 Pick_Correct 一致 */
     }
 
     Pick_JumpTo POS_RUN;
@@ -921,6 +1105,32 @@ void Place_Correct_Angle(void)
  *        第 1、2 块放完松爪前就把转盘转到下一槽（见 PlaceToRing 的 next_slot），
  *        第 3 块后面没有料了，直接放。换槽顺序仍是 0→1→2。
  */
+/**
+ * @brief 直接把地上的物块抓起来丢到 POS_THROW（不经过车上槽）
+ * @note  抓取动作和 Pick_ROUGH 用同一套：保持 release 到高位 → 张开 → 下降到
+ *        低位 → 夹住；区别是夹住后不回 POS_CAR，而是直接摆到 POS_THROW 松开。
+ *        环号用本轮 Place_Color[]（Place_ROUGH 把料放在哪三个环上，就从哪三个
+ *        环抓），所以第一轮/第二轮自动跟着 RerunFlag 走。
+ */
+void Pick_ROUGH_THROW(void)
+{
+    uint8_t *Place_Color = (RerunFlag == 0) ? Place_Color1 : Place_Color2;
+
+    for(uint8_t i = 0U; i < 3U; i++)
+    {
+        uint8_t ring = Place_Color[i];
+
+        MOVE_TO_RING_HIGH(ring);        /* 保持 release 到高位 */
+        Pick_Gripper_Observe();         /* 到高位后再张开 */
+        MOVE_TO_RING(ring);             /* 下降到低位 */
+        Pick_Gripper_Grab();
+        Pick_JumpTo POS_THROW;          /* 不回车上，直接去丢弃位 */
+        Pick_Gripper_Release();
+    }
+
+    Pick_JumpTo POS_RUN;
+}
+
 void Place_ROUGH(void)
 {
     uint8_t *Place_Color = (RerunFlag == 0) ? Place_Color1 : Place_Color2;
@@ -951,7 +1161,7 @@ void Place_RAW(void)
     for(uint8_t i = 0U; i < 3U; i++)
     {
         Pick_TurnTable_Set(i);          /* 先选槽（臂在别处时转盘转，安全） */
-        Pick_JumpTo POS_CAR;            /* 再摆到车上 */
+        Pick_JumpTo POS_CAR_DOWN;            /* 再摆到车上 */
         Pick_Gripper_Grab();
 
         if(boxOfSlot[i] == 1U)
@@ -963,6 +1173,26 @@ void Place_RAW(void)
             Pick_JumpTo POS_RAW_C;
         }
 
+        Pick_Gripper_Release();
+    }
+
+    Pick_JumpTo POS_RUN;
+}
+
+/**
+ * @brief 把车上三槽的物块依次抓到 POS_THROW 放掉
+ * @note  动作和 Place_RAW 一样，只是目标从原料区换成 POS_THROW（扔料位，见 pick.h）。
+ *        槽位 0→1→2 依次处理：先选槽（臂不在车体上方时转盘转）→ 摆到 POS_CAR
+ *        夹住 → 摆到 POS_THROW 松开；三块丢完再收臂到 POS_RUN。
+ */
+void Pick_THROW(void)
+{
+    for(uint8_t i = 0U; i < 3U; i++)
+    {
+        Pick_TurnTable_Set(i);          /* 先选槽，转盘在后台转 */
+        Pick_JumpTo POS_CAR_DOWN;            /* 再摆到车上 */
+        Pick_Gripper_Grab();
+        Pick_JumpTo POS_THROW;          /* 摆到丢弃位 */
         Pick_Gripper_Release();
     }
 

@@ -15,9 +15,10 @@
 
 #define POS_START              ( 45.0f + POS_CORR_ANG,  8.0f + POS_CORR_Z,   100.0f + POS_CORR_R )   // 车运行前的位置
 #define POS_RUN                ( 90.0f + POS_CORR_ANG, 63.0f + POS_CORR_Z,   10.0f + POS_CORR_R )   // 车移动时候位置
-
+#define POS_THROW              ( 135.0f + POS_CORR_ANG, 20.0f + POS_CORR_Z,   100.0f + POS_CORR_R )   // 扔掉物块的位置
 //====================== 车上放置位置 =====================
-#define POS_CAR                ( 55.5f + POS_CORR_ANG, 56.0f + POS_CORR_Z,   26.0f + POS_CORR_R )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
+#define POS_CAR_DOWN           ( 55.5f + POS_CORR_ANG, 42.0f + POS_CORR_Z,   26.0f + POS_CORR_R )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
+#define POS_CAR_ON             ( 55.5f + POS_CORR_ANG, 37.0f + POS_CORR_Z,   26.0f + POS_CORR_R )   // 车上放置位置(Pick_RAW 三次抓取都放这一点)
 #define PICK_TURN_ANG_A         30.0f
 #define PICK_TURN_ANG_B        150.0f
 #define PICK_TURN_ANG_C        270.0f
@@ -38,9 +39,9 @@
 #define POS_1                  (225.0f + POS_CORR_ANG, 165.5f + POS_CORR_Z,   74.0f + POS_CORR_R )   // 圆环左边 (XYZ均 -1.5)
 #define POS_2                  (180.0f + POS_CORR_ANG, 165.5f + POS_CORR_Z,   20.5f + POS_CORR_R )   // 圆环中间 (XYZ均 -1.5)
 #define POS_3                  (141.0f + POS_CORR_ANG, 165.5f + POS_CORR_Z,   86.5f + POS_CORR_R )   // 圆环右边 (XYZ均 -1.5)
-#define POS_1_HIGE             (225.1f + POS_CORR_ANG, 106.5f + POS_CORR_Z,   74.0f + POS_CORR_R )   // 圆环物块左边 (XYZ均 -1.5)
-#define POS_2_HIGE             (180.0f + POS_CORR_ANG, 106.5f + POS_CORR_Z,   20.0f + POS_CORR_R )   // 圆环物块中间 (XYZ均 -1.5)
-#define POS_3_HIGE             (141.2f + POS_CORR_ANG, 106.5f + POS_CORR_Z,   86.0f + POS_CORR_R )   // 圆环物块右边 (XYZ均 -1.5)
+#define POS_1_HIGE             (225.0f + POS_CORR_ANG, 106.5f + POS_CORR_Z,   74.0f + POS_CORR_R )   // 圆环物块左边 (XYZ均 -1.5)
+#define POS_2_HIGE             (180.0f + POS_CORR_ANG, 106.5f + POS_CORR_Z,   20.5f + POS_CORR_R )   // 圆环物块中间 (XYZ均 -1.5)
+#define POS_3_HIGE             (141.0f + POS_CORR_ANG, 106.5f + POS_CORR_Z,   86.5f + POS_CORR_R )   // 圆环物块右边 (XYZ均 -1.5)
 #define POS_OBSERVE_RING_LOW   (180.0f + POS_CORR_ANG, 141.5f + POS_CORR_Z,   16.5f + POS_CORR_R )   // 观察圆环位置 细修正时候
 #define POS_OBSERVE_RING_MIDDLE (180.0f + POS_CORR_ANG,  81.5f + POS_CORR_Z,   16.5f + POS_CORR_R )   // 观察暂存区上 料块位置
 #define POS_OBSERVE_RING_HIGH  (180.0f + POS_CORR_ANG,  56.5f + POS_CORR_Z,   16.5f + POS_CORR_R )   // 观察三个圆环 粗修正的时候对角度修正的时候使用

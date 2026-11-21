@@ -557,7 +557,15 @@ static void Test_Place_Ring(void)
     Pick_Init();
     HWT101_Init(&huart5);
     QRcode_Task();
-    Pick_RAW_PLUS_FAST();
+    Pick_Correct();
+    Pick_TEMP();
+    //Pick_Correct_TEMP();
+    /*Place_Correct_High();  
+            Place_Correct_Low(); 
+            Place_ROUGH();*/
+    /*Pick_ROUGH();//抓取到车上
+            Pick_THROW();//车上的物块丢掉
+            Pick_ROUGH_THROW();//直接将地上的物块抓取丢掉*/
 }
 
 
@@ -572,7 +580,7 @@ static void Test_GrabRawToCar(uint8_t box, uint8_t slot)
     }
     Pick_TurnTable_Set(slot);   /* 非阻塞启动选槽，臂还在原料区 */
     Pick_Gripper_Grab();        /* 与转盘转动并行 */
-    Pick_JumpTo POS_CAR;        /* 再摆臂：往车体上方去一律抬起来走 */
+    Pick_JumpTo POS_CAR_DOWN;   /* 再摆臂：往车体上方去一律抬起来走 */
     Pick_Gripper_Release();
 }
 
@@ -987,7 +995,7 @@ void Test_Switch(void)
 
     //Test_WaitStartKey();
     //Pick_Axis_Init();
-    switch(8)
+    switch(3)
     {
         case 1:  Test_AGV();         break;  //跑一遍位置
         case 2:  Cam_Init();
