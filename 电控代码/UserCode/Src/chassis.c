@@ -46,7 +46,7 @@ void AGV_Position_Init(void)
 {
 	// 所有拐点坐标(mm)
 	Points_X[0] = 350;
-	Points_Y[0] = 2050;
+	Points_Y[0] = 2070;
 	// 2: QRCode
 	Points_X[2] = 350;
 	Points_Y[2] = 1200;
@@ -54,18 +54,18 @@ void AGV_Position_Init(void)
 	Points_Y[4] = 350;
 	// 10: Rough
 	Points_X[10] = 1200;
-	Points_Y[10] = 2050;
+	Points_Y[10] = 2070;
 	Points_X[12] = 1200;
 	Points_Y[12] = 1200;
 	// 14：Raw
 	Points_X[14] = 1200;
 	Points_Y[14] = 350;
-	Points_X[20] = 2050;
-	Points_Y[20] = 2050;
+	Points_X[20] = 2070;
+	Points_Y[20] = 2070;
 	// 22: Temp
-	Points_X[22] = 2050;
+	Points_X[22] = 2070;
 	Points_Y[22] = 1200;
-	Points_X[24] = 2050;
+	Points_X[24] = 2070;
 	Points_Y[24] = 350;
 
 	/* 小车初始坐标/朝向跟着启停区走，两区各有一套（chassis.h 的 AGV_ZONEn_ORIGIN_*）。
@@ -616,28 +616,28 @@ void AGV_Position_Qcode_to_Raw()
 	AGV_Position_Go(Points_X[4], Points_Y[4], 0);
 	AGV_TurnLeft();
 	AGV_Position_Go(Points_X[14], Points_Y[14], 0);
-	if(Raw_Offset_L > 0)
-	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
-	}
-	else if(Raw_Offset_L < 0)
-	{
-		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
-	}
+	// if(Raw_Offset_L > 0)
+	// {
+	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
+	// }
+	// else if(Raw_Offset_L < 0)
+	// {
+	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
+	// }
 	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
 }
 
 void AGV_Position_Raw_to_Rough()
 {
 	AGV_Position_Translate(Raw_Approaching_L, Vel, 1);
-	if(Raw_Offset_L > 0)
-	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 0);
-	}
-	else if(Raw_Offset_L < 0)
-	{
-		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 1);
-	}
+	// if(Raw_Offset_L > 0)
+	// {
+	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 0);
+	// }
+	// else if(Raw_Offset_L < 0)
+	// {
+	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 1);
+	// }
 	AGV_TurnRight();
 	AGV_Position_Go(Points_X[10], Points_Y[10], 0);
 	AGV_TurnRight();
@@ -659,14 +659,14 @@ void AGV_Position_Temp_to_Raw()
 	AGV_Position_Go(Points_X[24], Points_Y[24], 0);
     AGV_TurnRight();
 	AGV_Position_Go(Points_X[14], Points_Y[14], 0);
-	if(Raw_Offset_L > 0)
-	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
-	}
-	else if(Raw_Offset_L < 0)
-	{
-		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
-	}
+	// if(Raw_Offset_L > 0)
+	// {
+	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
+	// }
+	// else if(Raw_Offset_L < 0)
+	// {
+	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
+	// }
 	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
 }
 

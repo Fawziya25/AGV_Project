@@ -25,7 +25,7 @@
    ⚠ AGV_Position_Translate() 内部会把它当上限：传更大的会被压到这里。 */
 #define Vel_Translate 80
 
-#define Run_With_Radar 0 // 是否避障运行，1 = 避障，0 = 不避障
+#define Run_With_Radar 1 // 是否避障运行，1 = 避障，0 = 不避障
 
 /* ---------------- 行驶加速度(0~255，对应 Emm_V5 的 acc 字段) ----------------
    数值越大，起步/停车的加减速越猛；0 = 不插加减速曲线，直接给目标转速。
