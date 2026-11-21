@@ -66,7 +66,7 @@
  * 这里只列**去程**各段的终点；第 6 段（回程）的终点是"起点格"本身，由
  * radar_task.c 的 Radar_ComposeRoute() 组路线时自动补上（见下面的 RADAR_RETURN_TO_START）。
  * 起点 = 出发点方格，跟着启停区走（区2 = 0、区1 = 4，见上面 RADAR_ZONEx_START_GRID）。 */
-#define LAUNCH_ROUTE_GOALS        { 2U, 14U, 10U, 22U, 14U }
+#define LAUNCH_ROUTE_GOALS        { 2U, 14U, 10U, 22U, 2U }
 
 /* 1 = 去程走完后再规划第 6 段：**从 22（RADAR_RETURN_FROM_GRID）回到启停区出发点方格**。
  *     注意这一段**不是接着第 5 段的**：第 5 段是 22→14（结束在 14），而回程按要求

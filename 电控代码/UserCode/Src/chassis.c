@@ -529,58 +529,88 @@ void AGV_Position_Depart()
 	                             : (uint8_t)AGV_ZONE2_DEPART_GRID;
 
 	AGV_Position_Go(Points_X[g], Points_Y[g], 0);
-	AGV_Position_Cruise(0, 3);
+
+	// AGV_Position_Cruise(0, 3);
+
+	if(AGV_Zone == 1U)
+	{
+		AGV_TurnLeft();
+		AGV_Position_Go(Points_X[14], Points_Y[14], 0);
+	}
+	else if(AGV_Zone == 2U)
+	{
+		AGV_Position_Go(Points_X[4], Points_Y[4], 0);
+		AGV_TurnLeft();
+		AGV_Position_Go(Points_X[14], Points_Y[14], 0);
+	}
 }
 
-void AGV_Position_Qcode_to_Raw()
+void AGV_Position_Qcode_to_Temp()
 {
-	AGV_Position_Cruise(1, 0);
-	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
-	if(Raw_Offset_L > 0)
-	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
-	}
-	else if(Raw_Offset_L < 0)
-	{
-		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
-	}
-}
+	// AGV_Position_Cruise(1, 0);
+	// AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
+	// if(Raw_Offset_L > 0)
+	// {
+	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
+	// }
+	// else if(Raw_Offset_L < 0)
+	// {
+	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
+	// }
 
-void AGV_Position_Raw_to_Rough()
-{
-	AGV_Position_Translate(Raw_Approaching_L, Vel, 1);
-	if(Raw_Offset_L > 0)
-	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 0);
-	}
-	else if(Raw_Offset_L < 0)
-	{
-		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 1);
-	}
 	AGV_Position_Cruise(2, 2);
-	AGV_Position_Translate(Rough_Approaching_L, Vel, 0);
-}
-
-void AGV_Position_Rough_to_Temp()
-{
-	AGV_Position_Translate(Rough_Approaching_L, Vel, 1);
-	AGV_Position_Cruise(3, 1);
 	AGV_Position_Translate(Temp_Approaching_L, Vel, 0);
 }
 
-void AGV_Position_Temp_to_Raw()
+void AGV_Position_Temp_to_Jingjiagong()
 {
+	// AGV_Position_Translate(Raw_Approaching_L, Vel, 1);
+	// if(Raw_Offset_L > 0)
+	// {
+	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 0);
+	// }
+	// else if(Raw_Offset_L < 0)
+	// {
+	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 1);
+	// }
+	// AGV_Position_Cruise(2, 2);
+	// AGV_Position_Translate(Rough_Approaching_L, Vel, 0);
+
 	AGV_Position_Translate(Temp_Approaching_L, Vel, 1);
-	AGV_Position_Cruise(4, 0);
-	if(Raw_Offset_L > 0)
-	{
-		AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
-	}
-	else if(Raw_Offset_L < 0)
-	{
-		AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
-	}
-	AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
+	AGV_Position_Cruise(3, 1);
+	AGV_Position_Translate(Jingjiagong_Approaching_L, Vel, 0);
+}
+
+void AGV_Position_Jingjiagong_to_Chengpin()
+{
+	// AGV_Position_Translate(Rough_Approaching_L, Vel, 1);
+	// AGV_Position_Cruise(3, 1);
+	// AGV_Position_Translate(Temp_Approaching_L, Vel, 0);
+
+    AGV_Position_Translate(Jingjiagong_Approaching_L, Vel, 1);
+	AGV_Position_Cruise(4, 3);
+	AGV_Position_Translate(Chengpin_Approaching_L, Vel, 0);
+}
+
+void AGV_Position_Chengpin_to_Temp()
+{
+	
+	// AGV_Position_Cruise(4, 0);
+	// if(Raw_Offset_L > 0)
+	// {
+	// 	AGV_Position_GoStraight(Raw_Offset_L, Vel, 1);
+	// }
+	// else if(Raw_Offset_L < 0)
+	// {
+	// 	AGV_Position_GoStraight(-Raw_Offset_L, Vel, 0);
+	// }
+	// AGV_Position_Translate(Raw_Approaching_L, Vel, 0);
+
+	AGV_Position_Translate(Chengpin_Approaching_L, Vel, 1);
+	AGV_Position_Go(Points_X[0], Points_Y[0], 0);
+	AGV_TurnRight();
+	AGV_Position_Go(Points_X[10], Points_Y[10], 0);
+	AGV_Position_Translate(Temp_Approaching_L, Vel, 0);
 }
 
 /**
@@ -593,9 +623,17 @@ void AGV_Position_GoBack()
 	uint16_t ox = (AGV_Zone == 1U) ? (uint16_t)AGV_ZONE1_ORIGIN_X : (uint16_t)AGV_ZONE2_ORIGIN_X;
 	uint16_t oy = (AGV_Zone == 1U) ? (uint16_t)AGV_ZONE1_ORIGIN_Y : (uint16_t)AGV_ZONE2_ORIGIN_Y;
 
-	AGV_Position_Translate(50, Vel, 1);
-	AGV_Position_Cruise(5, 3);
-	AGV_Position_Go(ox+50, oy-50, 0);
+	AGV_Position_Translate(Chengpin_Approaching_L, Vel, 1);
+	if(AGV_Zone == 1U)
+	{
+		AGV_Position_Go(Points_X[4], Points_Y[4], 0);
+		AGV_Position_Go(ox, oy, 0);
+	}
+	else if(AGV_Zone == 2U)
+	{
+		AGV_Position_Go(Points_X[0], Points_Y[0], 0);
+		AGV_Position_Go(ox, oy, 0);
+	}
 }
 
 #else

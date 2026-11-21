@@ -89,7 +89,8 @@ void TaskProc(void)
             TaskCode = Move1;
             break;
         case Move1:
-            AGV_Position_Qcode_to_Raw();
+            AGV_TrimYaw(0.35f);
+            AGV_Position_Qcode_to_Temp();
             TaskCode = Pick1;
             break;
 //===================================到达原料区==================================
@@ -101,12 +102,12 @@ void TaskProc(void)
             TaskCode = Move2;
             break;
         case Move2:
-            AGV_Position_Raw_to_Rough();
+            AGV_Position_Temp_to_Jingjiagong();
             TaskCode = Place1;
             break;
 //===================================到达粗加工区=================================
         case Place1:
-            AGV_TrimYaw(0.35f);
+            
             Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
             //Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
             Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
@@ -118,7 +119,7 @@ void TaskProc(void)
             TaskCode = Move3;
             break;
         case Move3:
-            AGV_Position_Rough_to_Temp();
+            AGV_Position_Jingjiagong_to_Chengpin();
             TaskCode = Place2;
             break;
 //===================================到达暂存区==================================
@@ -140,13 +141,12 @@ void TaskProc(void)
             break;
 //====================================二周目====================================
         case Move4:
-            AGV_Position_Temp_to_Raw();
+            AGV_Position_Chengpin_to_Temp();
             TaskCode = Pick1;
             break;
 //====================================回到原点=================================== 
         case GoBack:
             AGV_Position_GoBack();
-            
             TaskCode = IDLE;
             Menu_end(12, 12);
             break;
