@@ -137,6 +137,15 @@ void Cam_SendCommand(uint8_t cmd, const uint8_t *payload, uint8_t plen);
                直接返回 0，一帧都不发。 */
 uint8_t Cam_SwitchTo(uint8_t mode);
 
+/* 指定颜色 + 自定义总超时的 0x05 请求（阻塞）。
+   和 Cam_SwitchTo(05) 的区别：颜色由调用方给（不是从任务码里算），总等待上限也由
+   调用方给，适合"依次问几个颜色、每个最多等 N 秒"的场合。
+   相机在 0x05 模式下会持续回帧，且回帧里不回声请求的颜色，所以发完先冲掉
+   CAM_COLOR_FLUSH_MS 内的完成帧（防上一色的残留），再在剩下的时间里等 flag!=0。
+   color: 1~6；tmo_ms: 本次总等待上限。
+   返回 1=识别到（dx/dy 是这一色的偏差），0=超时/没识别到。 */
+uint8_t Cam_RequestColorTmo(uint8_t color, uint32_t tmo_ms);
+
 /* 旧 ASCII 协议的兼容层(Cam_SwitchTo / Cam_SwitchCloseColor / Cam_WaitFor*)
    已随 pick_task.c 重写一并删除，调用方改用上面的请求式 API。 */
 #endif

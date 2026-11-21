@@ -29,6 +29,9 @@
 #define CAM_INIT_TMO_MS   5000U  /* 上电探链路总超时 */
 #define CAM_RESEND_MS      100U  /* 第一段等待期间没动静就补发一次命令 */
 #define CAM_ACK_TMO_MS   10000U  /* 第一段超时：等相机回"本命令"的帧(第二段由调用方传，两段都是 10s) */
+/* 0x05 连续请求不同颜色时，发完新颜色先忽略这么久内的完成帧：
+   相机回帧不回声请求的颜色，上一色的完成帧可能还在路上，不冲掉会误判。 */
+#define CAM_COLOR_FLUSH_MS  50U
 
 /* ========================== 解析结果 ========================== */
 volatile int16_t dx = 0;                /* 最近一帧偏差X(px)，仅 0x02/0x04 更新 */
@@ -391,6 +394,55 @@ uint8_t Cam_SwitchTo(uint8_t mode)
             break;
     }
     return Cam_WaitSettle(mode, payload, plen);
+}
+
+/**
+ * @brief 指定颜色 + 自定义总超时的 0x05 请求（阻塞）
+ * @param color  1~6
+ * @param tmo_ms 本次总等待上限(ms)
+ * @retval 1=识别到该颜色（dx/dy 就是这一色的偏差）；0=超时/没识别到
+ * @note  与 Cam_SwitchTo(05) 的区别：
+ *          1) 颜色由调用方给，不是从任务码里算；
+ *          2) 总超时由调用方给（比如三个颜色各 2s），不是固定的 10s+20s；
+ *          3) 发完先冲掉 CAM_COLOR_FLUSH_MS 内的完成帧，防止上一色的残留完成帧
+ *             被当成这一色的结果（0x05 回帧里不回声请求的颜色，只能靠时间错开）。
+ */
+uint8_t Cam_RequestColorTmo(uint8_t color, uint32_t tmo_ms)
+{
+    uint8_t  payload[1];
+    uint32_t t0, lastSend, flushEnd;
+
+    payload[0] = color;
+
+    s_ackCmd  = 0xFF;               /* 清两段锁存 */
+    s_doneCmd = 0xFF;
+
+    Cam_SendCmdPayload(CAM_CMD_COLOR, payload, 1);
+    lastSend = HAL_GetTick();
+    t0       = lastSend;
+    flushEnd = t0 + CAM_COLOR_FLUSH_MS;
+
+    while((HAL_GetTick() - t0) < tmo_ms)
+    {
+        Cam_Service();              /* 接收链自愈 */
+
+        if((int32_t)(HAL_GetTick() - flushEnd) < 0)
+        {
+            s_doneCmd = 0xFF;       /* 冲掉上一色的残留完成帧 */
+        }
+        else if(s_doneCmd == CAM_CMD_COLOR)
+        {
+            return 1;               /* 这一色的完成帧 */
+        }
+
+        if((HAL_GetTick() - lastSend) >= CAM_RESEND_MS)
+        {
+            Cam_SendCmdPayload(CAM_CMD_COLOR, payload, 1);  /* 没动静就补发 */
+            lastSend = HAL_GetTick();
+        }
+        HAL_Delay(1);
+    }
+    return 0;
 }
 
 /* ========================== 初始化 / 维护 ========================== */

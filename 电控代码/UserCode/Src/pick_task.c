@@ -52,6 +52,11 @@
    Pick_Color1/2、Place_Color1/2 不用写：QRcode.h 已声明，经 pick.h 已可见。 */
 extern uint8_t RerunFlag;
 
+/* 暂存区三个位置上的颜色（Pick_Correct 填，Pick_TEMP 用）。
+   下标 0/1/2 = 位置 1/2/3；0 = 该位置没识别到颜色。
+   位置：1 = 左(POS_1_HIGE)、2 = 中(POS_OBSERVE_RING_MIDDLE)、3 = 右(POS_3_HIGE)。 */
+uint8_t Pick_ColorAtPos[3] = {0U, 0U, 0U};
+
 /* ---- 原料区 A/C 位的底盘补偿 ----
    A、C 两框在车头两侧、比 B 位远，底盘要分两步挪：
      去程：先沿车头方向走 PICK_RAW_STRAIGHT_MM 靠近料架，再**横移**
@@ -140,31 +145,89 @@ static void PlaceToRing(uint8_t slot, uint8_t ring, uint8_t next_slot, uint8_t h
 
 /* ========================== 公共函数实现 ========================== */
 
+/* ---- 任务1：暂存区三个位置的颜色识别 ----
+   每个颜色单独请求一次 0x05，最多等 2s；PID 修正最多 5s。 */
+#define PICK_CORRECT_COLOR_TMO_MS   2000U
+#define PICK_CORRECT_PID_TMO_MS     5000U
+
 /**
- * @brief 原料区取料前的视觉对正：摆取料位 → 开爪 → 0x02 拿偏差 → AGV_Correct 闭环 → 收爪
- * @note  由 task.c 的 `case Pick1` 在 Pick_RAW / Pick_RAW_PLUS 之前调用一次，
- *        所以 Pick_RAW 自己**不再**重复做这一步。
+ * @brief 暂存区三个位置的颜色识别 + 中间位对正（结果写 Pick_ColorAtPos[]）
+ * @note  流程（2026-11-21 新需求）：
+ *        1) 摆 POS_OBSERVE_RING_MIDDLE（中间位），开爪；
+ *           依次对任务码前三位颜色发 0x05，每个最多等 2s；
+ *           实际通常只认到 1~2 个颜色 —— 记录 |dx| 最小的那一色作为**位置2**的颜色。
+ *        2) 对位置2 的颜色再发一次 0x05，然后跑位置 PID，最多 5s。
+ *        3) 摆 POS_1_HIGE，依次发三种颜色（每个 2s），先识别到的就是**位置1**的颜色。
+ *        4) 摆 POS_3_HIGE，同样得到**位置3**的颜色。
+ *        5) 结果 → Pick_ColorAtPos[0/1/2]（0 = 该位置没识别到）。
  *
- *        位姿用 POS_RAW_B（原料区"下"位，正对前方且最近）：相机 0x02 看的就是
- *        这个位置上的"最近物块"，在这儿对正、接下来也在这儿取料，全程只用一个位姿。
- *
- *        拿不到偏差就不修正 —— 超时的话 dx/dy 还是上一次留下的旧值，拿它驱轮子
- *        会把车带偏；车本来就已经停在原料区，原地不动、直接进抓取反而更安全。
- *        请求函数传 NULL 是因为偏差由 AGV_Correct 直接读全局 dx/dy，不必在这里接值。
- *
- *        相机安装偏置用**取料侧那套**（PICK_CAM_MOUNT_CORR_X/Y），和放置侧
- *        （Place_Correct_*）那套完全独立：原料区观察位与圆环区观察位的光轴落点
- *        不同处，共用一个数会让某一侧系统性偏半个偏置量。
+ *        ⚠ 位置2 用 |dx| 最小来选：相机在中间观察位时，越靠近画面中心的颜色
+ *           越可能就是中间那一块。两侧位置直接用"在对应观察位上能否识别到"。
+ *        ⚠ 颜色表用 Pick_Color_List()（按 RerunFlag 选 Pick_Color1/2），
+ *           第一轮就是任务码 1~3 位，第二轮是 7~9 位。
+ *        ⚠ PID 用的是**放置侧**的相机安装偏置（AGV_Correct 默认那套），
+ *           暂存区观察位按放置侧标定。
  */
 void Pick_Correct(void)
 {
-    Pick_JumpTo POS_OBSERVE_RAW_A;
-    Pick_Gripper_Observe();         /* 修正期间张开，别挡住相机 */
-    if(Cam_SwitchTo(02)&&cam_flag!=0)  /* 偏差落到全局 dx/dy */
+    uint8_t *Pick_Color = Pick_Color_List();
+    uint8_t  best_color = 0U;
+    int32_t  best_abs   = 0x7FFFFFFF;
+    uint8_t  i;
+
+    Pick_ColorAtPos[0] = 0U;
+    Pick_ColorAtPos[1] = 0U;
+    Pick_ColorAtPos[2] = 0U;
+
+    /* ---- 1) 中间位：三种颜色各问一次，|dx| 最小的就是位置2 ---- */
+    Pick_JumpTo POS_OBSERVE_RING_MIDDLE;
+    Pick_Gripper_Observe();             /* 张开，别挡住相机 */
+
+    for(i = 0U; i < 3U; i++)
     {
-        AGV_CorrectWithMountCorr(3000, MOUNT_CORR_PICK);   /* 取料侧独立偏置 */
+        if(Cam_RequestColorTmo(Pick_Color[i], PICK_CORRECT_COLOR_TMO_MS))
+        {
+            int32_t ad = (dx < 0) ? -(int32_t)dx : (int32_t)dx;
+
+            if(ad < best_abs)
+            {
+                best_abs   = ad;
+                best_color = Pick_Color[i];
+            }
+        }
     }
-    Pick_Gripper_Release();         /* 修正完了，下去抓之前收成 release 位 */
+    Pick_ColorAtPos[1] = best_color;    /* 位置2 */
+
+    /* ---- 2) 位置2 的颜色做一次位置 PID（最多 5s） ---- */
+    if((best_color != 0U) &&
+       Cam_RequestColorTmo(best_color, PICK_CORRECT_COLOR_TMO_MS))
+    {
+        AGV_Correct(PICK_CORRECT_PID_TMO_MS);
+    }
+
+    /* ---- 3) 位置1：站到 POS_1_HIGE，依次问三种颜色，先识别到的就是它 ---- */
+    Pick_JumpTo POS_1_HIGE;
+    for(i = 0U; i < 3U; i++)
+    {
+        if(Cam_RequestColorTmo(Pick_Color[i], PICK_CORRECT_COLOR_TMO_MS))
+        {
+            Pick_ColorAtPos[0] = Pick_Color[i];
+            break;
+        }
+    }
+
+    /* ---- 4) 位置3：同 POS_3_HIGE ---- */
+    Pick_JumpTo POS_3_HIGE;
+    for(i = 0U; i < 3U; i++)
+    {
+        if(Cam_RequestColorTmo(Pick_Color[i], PICK_CORRECT_COLOR_TMO_MS))
+        {
+            Pick_ColorAtPos[2] = Pick_Color[i];
+            break;
+        }
+    }
+
+    Pick_Gripper_Release();             /* 识别完，收成 release 位，准备抓取 */
 }
 
 /**
@@ -615,6 +678,80 @@ void Pick_RAW_PLUS_FAST(void)
     Pick_JumpTo POS_RUN;
 }
 
+/* 颜色 → 暂存区位置(1/2/3)；0 = 没识别到/不在表里 */
+static uint8_t Pick_PosOfColor(uint8_t color)
+{
+    if(color == 0U)
+    {
+        return 0U;
+    }
+    for(uint8_t p = 0U; p < 3U; p++)
+    {
+        if(Pick_ColorAtPos[p] == color)
+        {
+            return (uint8_t)(p + 1U);
+        }
+    }
+    return 0U;
+}
+
+/**
+ * @brief 暂存区取料（任务2）：按任务码前三位的颜色顺序，去该颜色所在的位置抓
+ * @note  前置：Pick_Correct() 已经把三个位置的颜色写进 Pick_ColorAtPos[]。
+ *        第 i 个颜色 → 它在暂存区的位置(1/2/3) → 抓起来放进车上第 i 槽。
+ *        位置用 POS_x_HIGE（和 Pick_Correct 识别时用的位姿一致）。
+ *
+ *        识别失败的处理：某个颜色没识别到（或算出来的位置和前面重复），就把
+ *        三块里还没用过的位置按 1→2→3 补给它 —— 这样中间那块的位置不会被旁边的
+ *        默认值抢走，旁边两块随机也能保证三块不重位。
+ */
+void Pick_TEMP(void)
+{
+    uint8_t *Pick_Color = Pick_Color_List();
+    uint8_t  posOf[3] = {0U, 0U, 0U};
+    uint8_t  used[3]  = {0U, 0U, 0U};
+    uint8_t  i, p;
+
+    /* 先把三块各自的位置定下来：识别到的照用，并占住该位置 */
+    for(i = 0U; i < 3U; i++)
+    {
+        p = Pick_PosOfColor(Pick_Color[i]);
+        if((p != 0U) && (used[p - 1U] == 0U))
+        {
+            posOf[i]    = p;
+            used[p - 1U] = 1U;
+        }
+    }
+    /* 没识别到/重复的：补到还没被占用的位置（默认 1→2→3） */
+    for(i = 0U; i < 3U; i++)
+    {
+        if(posOf[i] == 0U)
+        {
+            for(p = 1U; p <= 3U; p++)
+            {
+                if(used[p - 1U] == 0U)
+                {
+                    posOf[i]    = p;
+                    used[p - 1U] = 1U;
+                    break;
+                }
+            }
+        }
+    }
+
+    /* 严格按任务码顺序抓：第 i 色 → 车上第 i 槽 */
+    for(i = 0U; i < 3U; i++)
+    {
+        MOVE_TO_RING_HIGH(posOf[i]);
+        Pick_Gripper_Grab();
+        Pick_TurnTable_Set(i);          /* 臂在环位时启动转盘选槽 */
+        Pick_JumpTo POS_CAR;
+        Pick_Gripper_Release();
+    }
+
+    Pick_JumpTo POS_RUN;
+}
+
 /* ---- 粗加工区低位对正后的固定角度前馈 ----
    Place_Correct_Low() 的视觉闭环只修 dx/dy（位置），修不了"车体相对圆环还差一个
    固定角度"这种机械偏角；实测每轮都差同一个方向同一个量，所以在这里补一次开环补角。
@@ -791,6 +928,44 @@ void Place_ROUGH(void)
         uint8_t has_next = (uint8_t)(i < 2);
         PlaceToRing((uint8_t)i, Place_Color[i], (uint8_t)((i + 1) % 3), has_next);
     }
+}
+
+/**
+ * @brief 车上三槽依次放回原料区（任务3）
+ * @note  2026-11-21 需求（按字面确认）：第 1 块(slot 0) → POS_RAW_B，
+ *        第 2 块(slot 1) → POS_RAW_C，第 3 块(slot 2) → **POS_RAW_C**（两块都去 C）。
+ *        两轮动作一样，只按槽位顺序；任务码里的颜色只用来标识"是哪一块"，
+ *        不影响放的位置，所以本函数不读 Pick_Color1/2。
+ *
+ *        流程和 PlaceToRing 一样是"选槽 → 摆到车上 → 夹住 → 摆到目标 → 松开"，
+ *        只是目标从圆环换成了原料区的 B/C 位。
+ *        ⚠ 调用前车必须停在原料区，POS_RAW_B/C 才对得上；task.c 目前是在
+ *          case Place2（暂存区）调它，流程位置要再确认。
+ */
+void Place_RAW(void)
+{
+    /* 槽位 → 原料框：1=B、2=C（第 3 块也去 C） */
+    static const uint8_t boxOfSlot[3] = {1U, 2U, 2U};
+
+    for(uint8_t i = 0U; i < 3U; i++)
+    {
+        Pick_TurnTable_Set(i);          /* 先选槽（臂在别处时转盘转，安全） */
+        Pick_JumpTo POS_CAR;            /* 再摆到车上 */
+        Pick_Gripper_Grab();
+
+        if(boxOfSlot[i] == 1U)
+        {
+            Pick_JumpTo POS_RAW_B;
+        }
+        else
+        {
+            Pick_JumpTo POS_RAW_C;
+        }
+
+        Pick_Gripper_Release();
+    }
+
+    Pick_JumpTo POS_RUN;
 }
 
 void Pick_ROUGH(void)

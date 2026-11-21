@@ -62,7 +62,7 @@
 /* 取料侧（Pick_Correct 专用）：与上面那套完全独立，实车上单独标定。
    只改这两个数，不影响放置侧；改完跑一次 Pick_Correct，看屏上 x/y≈0 即对准。 */
 #define PICK_CAM_MOUNT_CORR_X   0.0f    /* 取料侧横向偏置(px) */
-#define PICK_CAM_MOUNT_CORR_Y   25.0f   /* 取料侧纵向偏置(px) */
+#define PICK_CAM_MOUNT_CORR_Y   15.0f   /* 取料侧纵向偏置(px) */
 /* ============================================================= */
 
 PosPID_TypeDef posPID_X;

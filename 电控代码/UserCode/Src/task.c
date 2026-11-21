@@ -97,7 +97,8 @@ void TaskProc(void)
             Pick_Correct();
             //Pick_RAW();
             //Pick_RAW_PLUS(); 
-            Pick_RAW_PLUS_FAST(); 
+            //Pick_RAW_PLUS_FAST(); 
+            Pick_TEMP();
             TaskCode = Move2;
             break;
         case Move2:
@@ -108,7 +109,6 @@ void TaskProc(void)
         case Place1:
             AGV_TrimYaw(0.35f);
             Place_Correct_High();   /* 高位观察位：圆环2 粗修正 */
-            //Place_Correct_Angle();  /* 挪开量角度，闭环对正 + 航向复位 */
             Place_Correct_Low();    /* 低位观察位：细修正 + 收爪 */
             Place_ROUGH();
             TaskCode = Pick2;
@@ -126,9 +126,7 @@ void TaskProc(void)
             if(RerunFlag == 0) 
             {
                 AGV_TrimYaw(-0.4f);
-                Place_Correct_High(); 
-                //Place_Correct_Angle();
-                Place_Correct_Low();
+                Place_RAW();
             }
             else 
             {

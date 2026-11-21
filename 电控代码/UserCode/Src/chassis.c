@@ -46,7 +46,7 @@ void AGV_Position_Init(void)
 {
 	// 所有拐点坐标(mm)
 	Points_X[0] = 350;
-	Points_Y[0] = 2070;
+	Points_Y[0] = 2060;
 	// 2: QRCode
 	Points_X[2] = 350;
 	Points_Y[2] = 1200;
@@ -54,18 +54,18 @@ void AGV_Position_Init(void)
 	Points_Y[4] = 350;
 	// 10: Rough
 	Points_X[10] = 1200;
-	Points_Y[10] = 2070;
+	Points_Y[10] = 2060;
 	Points_X[12] = 1200;
 	Points_Y[12] = 1200;
 	// 14：Raw
 	Points_X[14] = 1200;
 	Points_Y[14] = 350;
-	Points_X[20] = 2070;
+	Points_X[20] = 2060;
 	Points_Y[20] = 2070;
 	// 22: Temp
-	Points_X[22] = 2070;
+	Points_X[22] = 2060;
 	Points_Y[22] = 1200;
-	Points_X[24] = 2070;
+	Points_X[24] = 2060;
 	Points_Y[24] = 350;
 
 	/* 小车初始坐标/朝向跟着启停区走，两区各有一套（chassis.h 的 AGV_ZONEn_ORIGIN_*）。

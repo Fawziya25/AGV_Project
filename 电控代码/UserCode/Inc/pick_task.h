@@ -83,10 +83,17 @@
 /* 槽位约定(slot)：0=A 槽, 1=B 槽, 2=C 槽，与 Place_Color[]/Pick_Color[] 下标一致
    圆环约定(ring)：1/2/3                                             */
 
-/* 原料区取料前的视觉对正：摆 POS_RAW_B → 开爪 → 0x02 拿偏差 → AGV_Correct(5000) → 收爪。
-   拿不到偏差就不修正（免得用旧 dx/dy 把车带偏）。由 task.c 的 case Pick1 在
-   Pick_RAW / Pick_RAW_PLUS 之前调用一次，那两个函数自己不再做这一步。 */
+/* 暂存区三个位置的颜色识别 + 中间位对正（任务1，2026-11-21）：
+     摆 POS_OBSERVE_RING_MIDDLE → 依次对任务码前三位颜色发 0x05（每个最多 2s）
+       → |dx| 最小的那一色记为位置2 → 再请求这一色 + AGV_Correct(5s)
+       → 摆 POS_1_HIGE 依次问三色，先识别到的记为位置1
+       → 摆 POS_3_HIGE 同理得到位置3。
+   结果写 Pick_ColorAtPos[0/1/2]（0 = 没识别到）。 */
 void Pick_Correct(void);
+
+/* 暂存区三个位置的颜色，下标 0/1/2 = 位置 1/2/3；0 = 没识别到。
+   Pick_Correct() 写，Pick_TEMP() 读。 */
+extern uint8_t Pick_ColorAtPos[3];
 
 /* 原料区取料（当前路线）：摆 POS_RAW_B、开爪，反复发 0x02 直到相机报回来的颜色号
    等于任务码当前要抓的那一色（flag 即颜色号 1~6），才下手抓到车上对应槽。
@@ -104,8 +111,8 @@ void Pick_RAW_C(uint8_t slot);
      t1 静止 6000ms —— 可以抓；t2 运动 1200ms —— 不能抓。
    Fast 路线在"到达悬挂高度"时按这个相位判断（见 pick_task.c 的
    Raw_PickAtFollow），普通路线仍按两段之和作为两次抓取的起始间隔。 */
-#define PICK_RAW_PLUS_STATIC_MS   3700U     /* t1 静止窗口 */
-#define PICK_RAW_PLUS_MOVING_MS   3300U     /* t2 运动窗口 */
+#define PICK_RAW_PLUS_STATIC_MS   4000U     /* t1 静止窗口 */
+#define PICK_RAW_PLUS_MOVING_MS   3000U     /* t2 运动窗口 */
 
 /* 一个完整周期 = t1 + t2 = 7200ms。
    六种抓取顺序中，相邻两次 Raw_PickAt 的目标起始间隔（毫秒）。 */
@@ -191,6 +198,16 @@ void Place_Correct_Low(void);
    依次放到二维码给的圆环上。 */
 void Place_ROUGH(void);
 void Pick_ROUGH(void);
+
+/* 暂存区取料（任务2，2026-11-21）：按任务码前三位的颜色顺序，去 Pick_ColorAtPos[]
+   给出的位置(1/2/3)抓，依次放进车上 0/1/2 槽。位置用 POS_x_HIGE。
+   某色没识别到/位置重复时，用剩下的空位置按 1→2→3 补；中间那块的位置优先保住。 */
+void Pick_TEMP(void);
+
+/* 车上三槽依次放回原料区（任务3，2026-11-21）：
+   slot 0 → POS_RAW_B，slot 1 → POS_RAW_C，slot 2 → POS_RAW_C（按字面，两块都去 C）。 */
+void Place_RAW(void);
+
 void Place_TEMP(void);
 /* 暂存区放置前的视觉对正【第二轮】：摆 POS_OBSERVE_RING_MIDDLE → 开爪 → 0x05 指定颜色 → AGV_Correct(5000) → 收爪。
    第一轮别调它 —— 第一轮的观察位和粗加工区同一处，复用 Place_Correct_Low()。
